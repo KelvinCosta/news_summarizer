@@ -47,3 +47,10 @@ This project is built around strict architectural patterns:
     python3 test_ingestion.py
     ```
     *Note: This script will generate a `vocabulary_seed.json` file on its first run and a `data/parquet/` directory to store the accepted articles.*
+
+6.  **Run the Summarization Agent (Sprint 3):**
+    To test the SLM reading from Parquet and generating summaries:
+    ```bash
+    python3 test_summarizer.py
+    ```
+    *Note: Ensure Ollama is running and the model is downloaded (e.g., `ollama run llama3.2`).*
