@@ -69,3 +69,4 @@ venv.bak/
 logs/
 *.log
 chroma_data/
+data/parquet/*.parquet

@@ -23,14 +23,27 @@ class ParquetStore:
             "content": a.content,
             "published_at": a.published_at,
             "source": a.source,
-            "simhash_value": a.simhash_value
+            # Converte para string antes de salvar para evitar perda de precisão 64-bit no Parquet
+            "simhash_value": str(a.simhash_value) if a.simhash_value is not None else None
         } for a in articles]
         
-        df_new = pl.DataFrame(data)
+        # Cria um schema explícito para evitar inferências como Float64
+        schema = {
+            "url": pl.Utf8,
+            "title": pl.Utf8,
+            "content": pl.Utf8,
+            "published_at": pl.Datetime,
+            "source": pl.Utf8,
+            "simhash_value": pl.Utf8
+        }
+        
+        df_new = pl.DataFrame(data, schema=schema)
         
         if self.file_path.exists():
             df_existing = pl.read_parquet(self.file_path)
-            # Append-only (concatenando para manter a Fonte da Verdade)
+            # Verifica se o arquivo antigo estava usando Float64 (do erro) e converte se necessário
+            if df_existing["simhash_value"].dtype != pl.Utf8:
+                df_existing = df_existing.with_columns(pl.col("simhash_value").cast(pl.Utf8))
             df_combined = pl.concat([df_existing, df_new])
             df_combined.write_parquet(self.file_path)
         else:
@@ -40,4 +53,5 @@ class ParquetStore:
         if not self.file_path.exists():
             return []
         df = pl.read_parquet(self.file_path, columns=["simhash_value"])
-        return df["simhash_value"].drop_nulls().to_list()
+        # Filtra nulos e converte para int
+        return [int(float(h)) if '.' in str(h) else int(h) for h in df["simhash_value"].drop_nulls().to_list()]
