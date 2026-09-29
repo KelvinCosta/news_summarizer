@@ -35,10 +35,15 @@ This project is built around strict architectural patterns:
     pip install -r requirements.txt
     ```
 
-4.  **Run the application:**
+4.  **Run the basic architecture simulation (Sprint 1):**
     To run the base FSM orchestrator and CQRS simulation:
     ```bash
     python3 main.py
     ```
 
-    You should see an output simulating the "happy path", a fail-fast scenario triggered by the guardrail, and the human-in-the-loop (HITL) intervention.
+5.  **Run the Ingestion and O(1) Funnel (Sprint 2):**
+    To test the RSS fetching, Parquet Event Store, SimHash and Bayesian filters:
+    ```bash
+    python3 test_ingestion.py
+    ```
+    *Note: This script will generate a `vocabulary_seed.json` file on its first run and a `data/parquet/` directory to store the accepted articles.*

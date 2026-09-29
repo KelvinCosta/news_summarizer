@@ -1,0 +1,17 @@
+{
+    "positive": {
+        "rust": 2.0,
+        "go": 2.0,
+        "arquitetura": 2.0,
+        "startups": 1.5,
+        "tecnologia": 1.5,
+        "ai": 2.0
+    },
+    "negative": {
+        "fofoca": -2.0,
+        "celebridade": -2.0,
+        "hor\u00f3scopo": -2.0,
+        "astrologia": -2.0,
+        "crime": -1.5
+    }
+}

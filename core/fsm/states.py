@@ -2,11 +2,20 @@ from enum import Enum
 
 class SystemState(Enum):
     IDLE = "IDLE"
-    ROUTING = "ROUTING" # Lobo Frontal: roteamento de intenção
-    RETRIEVING_CONTEXT = "RETRIEVING_CONTEXT" # Hipocampo: busca no banco vetorial
-    INFERENCING = "INFERENCING" # Execução do SLM (Ollama)
-    VALIDATING = "VALIDATING" # Guardrail: verificação de alucinações
-    HUMAN_INTERVENTION = "HUMAN_INTERVENTION" # HITL / Fail-Fast
-    CONSOLIDATING = "CONSOLIDATING" # Ciclo de Sono: processamento background
+    
+    # Sprint 2: Funil de Ingestão
+    INGESTING = "INGESTING"
+    FILTERING_LEXICAL = "FILTERING_LEXICAL"
+    FILTERING_BAYESIAN = "FILTERING_BAYESIAN"
+    DISCARDED_LEXICALDUPLICATE = "DISCARDED_LEXICALDUPLICATE"
+    DISCARDED_IRRELEVANT = "DISCARDED_IRRELEVANT"
+    
+    # Sprint 1: FSM Base
+    ROUTING = "ROUTING" # Lobo Frontal
+    RETRIEVING_CONTEXT = "RETRIEVING_CONTEXT" # Hipocampo
+    INFERENCING = "INFERENCING" # Ollama
+    VALIDATING = "VALIDATING" # Guardrail
+    HUMAN_INTERVENTION = "HUMAN_INTERVENTION" # HITL
+    CONSOLIDATING = "CONSOLIDATING" # Ciclo de Sono
     COMPLETED = "COMPLETED"
     FAILED = "FAILED"
