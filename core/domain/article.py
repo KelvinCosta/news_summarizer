@@ -19,3 +19,9 @@ class SummarizedArticle:
     title: str
     summary: str
     processed_at: datetime
+
+@dataclass(frozen=True)
+class GlobalBulletin:
+    """Entidade que representa o boletim diário consolidado (Agente Master)."""
+    content: str
+    processed_at: datetime

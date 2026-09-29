@@ -1,6 +1,6 @@
 import polars as pl
 from pathlib import Path
-from core.domain.article import Article, SummarizedArticle
+from core.domain.article import Article, SummarizedArticle, GlobalBulletin
 from typing import List
 
 class ParquetStore:
@@ -13,6 +13,7 @@ class ParquetStore:
         self.storage_dir.mkdir(parents=True, exist_ok=True)
         self.file_path = self.storage_dir / "articles.parquet"
         self.summaries_path = self.storage_dir / "summaries.parquet"
+        self.bulletins_path = self.storage_dir / "bulletins.parquet"
 
     def append(self, articles: List[Article]):
         if not articles:
@@ -48,7 +49,6 @@ class ParquetStore:
             df_new.write_parquet(self.file_path)
 
     def append_summaries(self, summaries: List[SummarizedArticle]):
-        """Grava os resumos processados individualmente."""
         if not summaries:
             return
             
@@ -75,6 +75,30 @@ class ParquetStore:
         else:
             df_new.write_parquet(self.summaries_path)
 
+    def append_bulletin(self, bulletin: GlobalBulletin):
+        """Grava o boletim consolidado no log Parquet."""
+        if not bulletin:
+            return
+            
+        data = [{
+            "content": bulletin.content,
+            "processed_at": bulletin.processed_at
+        }]
+        
+        schema = {
+            "content": pl.Utf8,
+            "processed_at": pl.Datetime
+        }
+        
+        df_new = pl.DataFrame(data, schema=schema)
+        
+        if self.bulletins_path.exists():
+            df_existing = pl.read_parquet(self.bulletins_path)
+            df_combined = pl.concat([df_existing, df_new])
+            df_combined.write_parquet(self.bulletins_path)
+        else:
+            df_new.write_parquet(self.bulletins_path)
+
     def get_all_simhashes(self) -> List[int]:
         if not self.file_path.exists():
             return []
@@ -82,7 +106,6 @@ class ParquetStore:
         return [int(float(h)) if '.' in str(h) else int(h) for h in df["simhash_value"].drop_nulls().to_list()]
 
     def get_latest_articles(self, limit: int = 5) -> List[dict]:
-        """Recupera os artigos brutos mais recentes."""
         if not self.file_path.exists():
             return []
         df = pl.read_parquet(self.file_path)
@@ -93,7 +116,6 @@ class ParquetStore:
         return df_sorted.head(limit).to_dicts()
 
     def get_latest_summaries(self, limit: int = 5) -> List[dict]:
-        """Recupera os resumos (SummarizedArticle) mais recentes."""
         if not self.summaries_path.exists():
             return []
         df = pl.read_parquet(self.summaries_path)

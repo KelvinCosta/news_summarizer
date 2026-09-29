@@ -1,7 +1,7 @@
 import logging
 from datetime import datetime
 from core.persistence.parquet_store import ParquetStore
-from core.domain.article import SummarizedArticle
+from core.domain.article import SummarizedArticle, GlobalBulletin
 from core.inference.ollama_agent import OllamaSummarizerAgent, OllamaMasterAgent
 from core.fsm.states import SystemState
 
@@ -36,7 +36,6 @@ def run_pipeline():
         summary = summarizer_agent.summarize(f"{title}\n\n{content}")
         
         if summary:
-            # Instancia o domínio imutável do resumo
             summarized_obj = SummarizedArticle(
                 original_url=url,
                 title=title,
@@ -49,14 +48,13 @@ def run_pipeline():
             logging.error(f"[{SystemState.FAILED.value}] Falha na inferência. Ollama está rodando?")
             return
 
-    # Salvando os resumos parciais no banco de eventos (Append-only)
+    # Salvando os resumos parciais no banco
     logging.info(f"[{SystemState.CONSOLIDATING.value}] Salvando {len(summarized_objects)} resumos em summaries.parquet...")
     parquet_store.append_summaries(summarized_objects)
     
     # FASE 2: REDUCE (Sumário Global)
     print("\n--- FASE 2: Agente Master (Boletim Global) ---")
     
-    # Lê os recém-salvos para garantir a integridade da persistência (Simulando um ciclo independente)
     saved_summaries_dicts = parquet_store.get_latest_summaries(limit=len(summarized_objects))
     summary_texts = [s['summary'] for s in saved_summaries_dicts]
     
@@ -70,6 +68,11 @@ def run_pipeline():
         print("="*80)
         print(f"\n{global_bulletin}\n")
         print("="*80 + "\n")
+        
+        # Salvando o Boletim no Banco!
+        bulletin_obj = GlobalBulletin(content=global_bulletin, processed_at=datetime.utcnow())
+        parquet_store.append_bulletin(bulletin_obj)
+        logging.info(f"[{SystemState.CONSOLIDATING.value}] Boletim Final salvo em 'bulletins.parquet' com sucesso!")
         logging.info(f"[{SystemState.COMPLETED.value}] Pipeline concluído com sucesso!")
     else:
         logging.error(f"[{SystemState.FAILED.value}] Agente Master falhou na geração do boletim.")
