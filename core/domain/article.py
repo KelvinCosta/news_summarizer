@@ -11,3 +11,11 @@ class Article:
     published_at: datetime
     source: str
     simhash_value: Optional[int] = None
+
+@dataclass(frozen=True)
+class SummarizedArticle:
+    """Entidade que representa uma notícia processada individualmente pelo Agente SLM."""
+    original_url: str
+    title: str
+    summary: str
+    processed_at: datetime

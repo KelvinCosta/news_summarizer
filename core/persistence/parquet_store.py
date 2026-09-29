@@ -1,6 +1,6 @@
 import polars as pl
 from pathlib import Path
-from core.domain.article import Article
+from core.domain.article import Article, SummarizedArticle
 from typing import List
 
 class ParquetStore:
@@ -12,6 +12,7 @@ class ParquetStore:
         self.storage_dir = Path(storage_dir)
         self.storage_dir.mkdir(parents=True, exist_ok=True)
         self.file_path = self.storage_dir / "articles.parquet"
+        self.summaries_path = self.storage_dir / "summaries.parquet"
 
     def append(self, articles: List[Article]):
         if not articles:
@@ -46,6 +47,34 @@ class ParquetStore:
         else:
             df_new.write_parquet(self.file_path)
 
+    def append_summaries(self, summaries: List[SummarizedArticle]):
+        """Grava os resumos processados individualmente."""
+        if not summaries:
+            return
+            
+        data = [{
+            "original_url": s.original_url,
+            "title": s.title,
+            "summary": s.summary,
+            "processed_at": s.processed_at
+        } for s in summaries]
+        
+        schema = {
+            "original_url": pl.Utf8,
+            "title": pl.Utf8,
+            "summary": pl.Utf8,
+            "processed_at": pl.Datetime
+        }
+        
+        df_new = pl.DataFrame(data, schema=schema)
+        
+        if self.summaries_path.exists():
+            df_existing = pl.read_parquet(self.summaries_path)
+            df_combined = pl.concat([df_existing, df_new])
+            df_combined.write_parquet(self.summaries_path)
+        else:
+            df_new.write_parquet(self.summaries_path)
+
     def get_all_simhashes(self) -> List[int]:
         if not self.file_path.exists():
             return []
@@ -53,13 +82,23 @@ class ParquetStore:
         return [int(float(h)) if '.' in str(h) else int(h) for h in df["simhash_value"].drop_nulls().to_list()]
 
     def get_latest_articles(self, limit: int = 5) -> List[dict]:
-        """Recupera os artigos mais recentes com base na data de publicação."""
+        """Recupera os artigos brutos mais recentes."""
         if not self.file_path.exists():
             return []
         df = pl.read_parquet(self.file_path)
         if df.height == 0:
             return []
         
-        # Ordena pelos mais recentes
         df_sorted = df.sort("published_at", descending=True)
+        return df_sorted.head(limit).to_dicts()
+
+    def get_latest_summaries(self, limit: int = 5) -> List[dict]:
+        """Recupera os resumos (SummarizedArticle) mais recentes."""
+        if not self.summaries_path.exists():
+            return []
+        df = pl.read_parquet(self.summaries_path)
+        if df.height == 0:
+            return []
+        
+        df_sorted = df.sort("processed_at", descending=True)
         return df_sorted.head(limit).to_dicts()
