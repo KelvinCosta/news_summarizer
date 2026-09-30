@@ -1,6 +1,7 @@
 import logging
 from datetime import datetime
 from core.persistence.parquet_store import ParquetStore
+from core.persistence.chroma_adapter import ChromaDBAdapter
 from core.domain.article import SummarizedArticle, GlobalBulletin
 from core.inference.ollama_agent import OllamaSummarizerAgent, OllamaMasterAgent
 from core.fsm.states import SystemState
@@ -11,8 +12,9 @@ def run_pipeline():
     print("=== Iniciando Pipeline Map-Reduce Dinâmico (Agentes SLM Locais) ===")
     
     parquet_store = ParquetStore("data/parquet")
+    semantic_memory = ChromaDBAdapter("data/chroma")
     
-    # 1. Recuperando TODOS os artigos brutos que AINDA NÃO FORAM processados
+    # 1. Recuperando TODOS os artigos brutos inéditos
     articles = parquet_store.get_unsummarized_articles()
     
     if not articles:
@@ -44,23 +46,24 @@ def run_pipeline():
                 processed_at=datetime.utcnow()
             )
             summarized_objects.append(summarized_obj)
-            logging.info(f"[{SystemState.COMPLETED.value}] Resumo individual concluído.")
+            
+            # INJEÇÃO NO HIPOCAMPO (ChromaDB)
+            semantic_memory.store_individual_summary(summarized_obj)
+            
+            logging.info(f"[{SystemState.COMPLETED.value}] Resumo gerado e vetorizado com sucesso.")
         else:
             logging.error(f"[{SystemState.FAILED.value}] Falha na inferência.")
             return
 
-    # Salvando os resumos parciais no banco de forma atômica
-    logging.info(f"[{SystemState.CONSOLIDATING.value}] Salvando {len(summarized_objects)} novos resumos em summaries.parquet...")
+    # Salvando os resumos no Parquet
+    logging.info(f"[{SystemState.CONSOLIDATING.value}] Salvando {len(summarized_objects)} resumos em summaries.parquet...")
     parquet_store.append_summaries(summarized_objects)
     
     # FASE 2: REDUCE (Sumário Global)
     print("\n--- FASE 2: Agente Master (Boletim Global) ---")
     
-    # Aqui, nós passamos para o Master APENAS a carga de resumos que ele acabou de gerar nesta sessão
-    # (ou seja, os resumos inéditos do dia)
     summary_texts = [s.summary for s in summarized_objects]
-    
-    logging.info(f"[{SystemState.INFERENCING.value}] Agente 2 (Master): Sintetizando o Boletim Diário a partir dos {len(summary_texts)} resumos gerados agora...")
+    logging.info(f"[{SystemState.INFERENCING.value}] Agente 2 (Master): Sintetizando o Boletim Diário a partir dos resumos...")
     
     global_bulletin = master_agent.generate_global_bulletin(summary_texts)
     
@@ -71,7 +74,7 @@ def run_pipeline():
         print(f"\n{global_bulletin}\n")
         print("="*80 + "\n")
         
-        # Salvando o Boletim no Banco
+        # Salvando no Event Store (Parquet)
         bulletin_obj = GlobalBulletin(content=global_bulletin, processed_at=datetime.utcnow())
         parquet_store.append_bulletin(bulletin_obj)
         logging.info(f"[{SystemState.CONSOLIDATING.value}] Boletim Final salvo em 'bulletins.parquet' com sucesso!")

@@ -1,10 +1,56 @@
 import sys
 from datetime import datetime
 from core.persistence.parquet_store import ParquetStore
+from core.persistence.chroma_adapter import ChromaDBAdapter
 from core.domain.article import DailySummary
 from core.inference.ollama_agent import OllamaMasterAgent
+import ollama
 
-def view_by_date(store: ParquetStore):
+def chat_with_kelvin(memory: ChromaDBAdapter):
+    print("\n" + "="*80)
+    print("🧠 K.E.L.V.I.N. - Terminal de RAG (Busca Semântica)")
+    print("Faça perguntas sobre as notícias já processadas.")
+    print("="*80)
+    
+    while True:
+        query = input("\nVocê: ")
+        if query.lower() in ['q', 'sair', 'exit']:
+            break
+            
+        print("K.E.L.V.I.N. (Buscando memórias...)")
+        contexts = memory.recall_context(query, limit=3)
+        
+        if not contexts:
+            print("K.E.L.V.I.N.: Não encontrei nenhuma memória consolidada sobre este assunto.")
+            continue
+            
+        # Montar o Prompt com o Contexto Injetado
+        context_text = "\n\n---\n\n".join([c["content"] for c in contexts])
+        
+        prompt = (
+            f"Use ESTRITAMENTE as informações abaixo para responder a pergunta do usuário.\n"
+            f"Se a informação não estiver no contexto, diga que não possui dados suficientes em memória.\n\n"
+            f"MEMÓRIA VETORIAL:\n{context_text}\n\n"
+            f"PERGUNTA: {query}"
+        )
+        
+        try:
+            response = ollama.chat(model="llama3.2", messages=[
+                {"role": "system", "content": "Você é K.E.L.V.I.N., um agente inteligente operando um sistema de Retrieval-Augmented Generation (RAG)."},
+                {"role": "user", "content": prompt}
+            ])
+            print(f"\nK.E.L.V.I.N.: {response['message']['content']}")
+            
+            # Auditoria (Rastreabilidade)
+            print("\n[Auditoria de Memória]")
+            for c in contexts:
+                meta = c['metadata']
+                tipo = meta.get('type', 'desconhecido')
+                print(f" - Origem: {tipo} | Data: {meta.get('date', meta.get('processed_at', ''))}")
+        except Exception as e:
+            print(f"Erro na Inferência: {e}")
+
+def view_by_date(store: ParquetStore, memory: ChromaDBAdapter):
     dates = store.get_available_bulletin_dates()
     if not dates:
         print("Nenhum boletim encontrado no banco de dados.")
@@ -56,8 +102,10 @@ def view_by_date(store: ParquetStore):
                             processed_at=datetime.utcnow()
                         )
                         store.append_daily_summary(new_daily)
+                        memory.store_daily_summary(new_daily) # SALVANDO NO CHROMA
+                        
                         print("\n" + "="*80)
-                        print(f"🌟 MEGA-BOLETIM DO DIA: {selected_date} (Gerado agora e salvo!)")
+                        print(f"🌟 MEGA-BOLETIM DO DIA: {selected_date} (Gerado agora, salvo e vetorizado!)")
                         print("="*80)
                         print(f"\n{master_content}\n")
                         print("="*80 + "\n")
@@ -102,20 +150,25 @@ def view_by_bulletin(store: ParquetStore):
 
 def main():
     store = ParquetStore("data/parquet")
+    memory = ChromaDBAdapter("data/chroma")
+    
     while True:
-        print("\n=== MENU DE NAVEGAÇÃO DE BOLETINS ===")
+        print("\n=== MENU INTERATIVO K.E.L.V.I.N. ===")
         print("[1] Visualizar Mega-Boletins por Data (Visão Diária)")
         print("[2] Visualizar Boletins Parciais (Sessões Específicas)")
-        print("[3] Sair")
+        print("[3] Fazer uma pergunta (RAG / Memória Semântica)")
+        print("[4] Sair")
         
         try:
             choice = input("> ")
             if choice == '1':
-                view_by_date(store)
+                view_by_date(store, memory)
             elif choice == '2':
                 view_by_bulletin(store)
-            elif choice == '3' or choice.lower() == 'q':
-                print("Saindo.")
+            elif choice == '3':
+                chat_with_kelvin(memory)
+            elif choice == '4' or choice.lower() == 'q':
+                print("Saindo do K.E.L.V.I.N.")
                 break
             else:
                 print("Opção inválida.")
