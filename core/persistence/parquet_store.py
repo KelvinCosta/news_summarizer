@@ -150,3 +150,14 @@ class ParquetStore:
         df_unsummarized = df_unsummarized.sort("published_at", descending=True)
         
         return df_unsummarized.to_dicts()
+
+    def get_all_bulletins(self) -> List[dict]:
+        """Recupera todos os boletins salvos, ordenados do mais recente para o mais antigo."""
+        if not self.bulletins_path.exists():
+            return []
+        df = pl.read_parquet(self.bulletins_path)
+        if df.height == 0:
+            return []
+        
+        df_sorted = df.sort("processed_at", descending=True)
+        return df_sorted.to_dicts()
