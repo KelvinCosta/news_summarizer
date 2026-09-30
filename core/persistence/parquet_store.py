@@ -1,6 +1,6 @@
 import polars as pl
 from pathlib import Path
-from core.domain.article import Article, SummarizedArticle, GlobalBulletin
+from core.domain.article import Article, SummarizedArticle, GlobalBulletin, DailySummary
 from typing import List
 
 class ParquetStore:
