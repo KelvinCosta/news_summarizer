@@ -70,3 +70,9 @@ logs/
 *.log
 chroma_data/
 data/parquet/*.parquet
+
+# Ignorar toda a pasta de dados locais e caches gerados
+data/
+vocabulary_seed.json
+data/
+vocabulary_seed.json
