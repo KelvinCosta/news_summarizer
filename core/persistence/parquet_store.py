@@ -161,3 +161,77 @@ class ParquetStore:
         
         df_sorted = df.sort("processed_at", descending=True)
         return df_sorted.to_dicts()
+
+    def append_daily_summary(self, daily: DailySummary):
+        if not daily:
+            return
+            
+        self.daily_path = self.storage_dir / "daily_summaries.parquet"
+        
+        data = [{
+            "target_date": daily.target_date,
+            "content": daily.content,
+            "processed_at": daily.processed_at
+        }]
+        
+        schema = {
+            "target_date": pl.Utf8,
+            "content": pl.Utf8,
+            "processed_at": pl.Datetime
+        }
+        
+        df_new = pl.DataFrame(data, schema=schema)
+        
+        if self.daily_path.exists():
+            df_existing = pl.read_parquet(self.daily_path)
+            df_combined = pl.concat([df_existing, df_new])
+            df_combined.write_parquet(self.daily_path)
+        else:
+            df_new.write_parquet(self.daily_path)
+
+    def get_daily_summary(self, target_date: str) -> dict:
+        """Retorna o mega-boletim de uma data específica, se existir."""
+        self.daily_path = self.storage_dir / "daily_summaries.parquet"
+        if not self.daily_path.exists():
+            return None
+            
+        df = pl.read_parquet(self.daily_path)
+        if df.height == 0:
+            return None
+            
+        # Filtra pela data alvo
+        df_filtered = df.filter(pl.col("target_date") == target_date)
+        if df_filtered.height == 0:
+            return None
+            
+        # Pega a versão mais recente caso haja reprocessamento
+        return df_filtered.sort("processed_at", descending=True).head(1).to_dicts()[0]
+
+    def get_available_bulletin_dates(self) -> List[str]:
+        """Retorna uma lista única das datas (YYYY-MM-DD) que possuem boletins salvos."""
+        if not self.bulletins_path.exists():
+            return []
+            
+        df = pl.read_parquet(self.bulletins_path)
+        if df.height == 0:
+            return []
+            
+        # Converte a coluna processed_at para string YYYY-MM-DD e pega os únicos
+        dates = df.with_columns(pl.col("processed_at").dt.to_string("%Y-%m-%d").alias("date_str"))
+        unique_dates = dates["date_str"].unique().sort(descending=True).to_list()
+        return unique_dates
+        
+    def get_bulletins_by_date(self, target_date: str) -> List[dict]:
+        """Recupera todos os boletins gerados em um dia específico."""
+        if not self.bulletins_path.exists():
+            return []
+            
+        df = pl.read_parquet(self.bulletins_path)
+        if df.height == 0:
+            return []
+            
+        # Cria uma coluna temporária para facilitar o filtro
+        df = df.with_columns(pl.col("processed_at").dt.to_string("%Y-%m-%d").alias("date_str"))
+        df_filtered = df.filter(pl.col("date_str") == target_date)
+        
+        return df_filtered.sort("processed_at", descending=False).to_dicts()

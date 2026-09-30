@@ -22,6 +22,13 @@ class SummarizedArticle:
 
 @dataclass(frozen=True)
 class GlobalBulletin:
-    """Entidade que representa o boletim diário consolidado (Agente Master)."""
+    """Entidade que representa o boletim consolidado de uma sessão (Agente Master)."""
+    content: str
+    processed_at: datetime
+
+@dataclass(frozen=True)
+class DailySummary:
+    """Entidade que representa o sumário definitivo de um dia (Mega-Boletim)."""
+    target_date: str # Formato 'YYYY-MM-DD'
     content: str
     processed_at: datetime
