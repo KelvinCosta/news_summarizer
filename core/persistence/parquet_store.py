@@ -76,7 +76,6 @@ class ParquetStore:
             df_new.write_parquet(self.summaries_path)
 
     def append_bulletin(self, bulletin: GlobalBulletin):
-        """Grava o boletim consolidado no log Parquet."""
         if not bulletin:
             return
             
@@ -124,3 +123,30 @@ class ParquetStore:
         
         df_sorted = df.sort("processed_at", descending=True)
         return df_sorted.head(limit).to_dicts()
+
+    def get_unsummarized_articles(self) -> List[dict]:
+        """Retorna todos os artigos brutos que ainda não possuem um resumo associado."""
+        if not self.file_path.exists():
+            return []
+            
+        df_articles = pl.read_parquet(self.file_path)
+        
+        if not self.summaries_path.exists():
+            # Se a tabela de resumos não existe, todos os artigos são inéditos
+            return df_articles.sort("published_at", descending=True).to_dicts()
+            
+        df_summaries = pl.read_parquet(self.summaries_path)
+        
+        if df_summaries.height == 0:
+            return df_articles.sort("published_at", descending=True).to_dicts()
+            
+        # Extrai a lista de URLs que já foram processadas
+        summarized_urls = df_summaries["original_url"].to_list()
+        
+        # Filtra os artigos brutos rejeitando aqueles cuja URL já está na lista dos processados
+        df_unsummarized = df_articles.filter(~pl.col("url").is_in(summarized_urls))
+        
+        # Ordena os inéditos pelos mais recentes
+        df_unsummarized = df_unsummarized.sort("published_at", descending=True)
+        
+        return df_unsummarized.to_dicts()
