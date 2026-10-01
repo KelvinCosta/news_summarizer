@@ -8,7 +8,7 @@ import ollama
 
 def chat_with_kelvin(memory: ChromaDBAdapter):
     print("\n" + "="*80)
-    print("🧠 K.E.L.V.I.N. - Terminal de RAG (Busca Semântica)")
+    print("🧠 Terminal de RAG (Busca Semântica)")
     print("Faça perguntas sobre as notícias já processadas.")
     print("="*80)
     
@@ -17,11 +17,11 @@ def chat_with_kelvin(memory: ChromaDBAdapter):
         if query.lower() in ['q', 'sair', 'exit']:
             break
             
-        print("K.E.L.V.I.N. (Buscando memórias...)")
+        print("Buscando memórias...")
         contexts = memory.recall_context(query, limit=3)
         
         if not contexts:
-            print("K.E.L.V.I.N.: Não encontrei nenhuma memória consolidada sobre este assunto.")
+            print("Não encontrei nenhuma memória consolidada sobre este assunto.")
             continue
             
         # Montar o Prompt com o Contexto Injetado
@@ -36,10 +36,10 @@ def chat_with_kelvin(memory: ChromaDBAdapter):
         
         try:
             response = ollama.chat(model="llama3.2", messages=[
-                {"role": "system", "content": "Você é K.E.L.V.I.N., um agente inteligente operando um sistema de Retrieval-Augmented Generation (RAG)."},
+                {"role": "system", "content": "Você é um agente inteligente operando um sistema de Retrieval-Augmented Generation (RAG)."},
                 {"role": "user", "content": prompt}
             ])
-            print(f"\nK.E.L.V.I.N.: {response['message']['content']}")
+            print(f"\n{response['message']['content']}")
             
             # Auditoria (Rastreabilidade)
             print("\n[Auditoria de Memória]")
@@ -153,7 +153,7 @@ def main():
     memory = ChromaDBAdapter("data/chroma")
     
     while True:
-        print("\n=== MENU INTERATIVO K.E.L.V.I.N. ===")
+        print("\n=== MENU INTERATIVO ===")
         print("[1] Visualizar Mega-Boletins por Data (Visão Diária)")
         print("[2] Visualizar Boletins Parciais (Sessões Específicas)")
         print("[3] Fazer uma pergunta (RAG / Memória Semântica)")
@@ -168,7 +168,7 @@ def main():
             elif choice == '3':
                 chat_with_kelvin(memory)
             elif choice == '4' or choice.lower() == 'q':
-                print("Saindo do K.E.L.V.I.N.")
+                print("Finalizando. Até logo!")
                 break
             else:
                 print("Opção inválida.")

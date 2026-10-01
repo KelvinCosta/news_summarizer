@@ -1,4 +1,5 @@
 import chromadb
+from chromadb.config import Settings
 import ollama
 from typing import List, Dict, Any
 from core.domain.ports import ISemanticMemory
@@ -25,7 +26,11 @@ class ChromaDBAdapter(ISemanticMemory):
     Adaptador de Infraestrutura: Implementa ISemanticMemory conectando-se ao ChromaDB.
     """
     def __init__(self, storage_path: str = "data/chroma"):
-        self.client = chromadb.PersistentClient(path=storage_path)
+        # Instanciamos o client com a telemetria desativada (Privacidade On-Premise)
+        self.client = chromadb.PersistentClient(
+            path=storage_path,
+            settings=Settings(anonymized_telemetry=False)
+        )
         self.embedding_fn = OllamaEmbeddingFunction("nomic-embed-text")
         
         # O Hipocampo: Uma única coleção para memórias consolidadas
@@ -35,10 +40,8 @@ class ChromaDBAdapter(ISemanticMemory):
         )
 
     def store_daily_summary(self, daily: DailySummary) -> None:
-        """Vetoriza e armazena o Mega-Boletim Diário."""
         doc_id = f"daily_{daily.target_date}"
         
-        # Rastreabilidade Absoluta (A Ponte com o Parquet via data)
         metadata = {
             "type": "mega_bulletin",
             "date": daily.target_date,
@@ -52,9 +55,7 @@ class ChromaDBAdapter(ISemanticMemory):
         )
 
     def store_individual_summary(self, summary: SummarizedArticle) -> None:
-        """Vetoriza e armazena os resumos individuais."""
         import hashlib
-        # Rastreabilidade Absoluta (Ponte com o Parquet via URL)
         url_hash = hashlib.md5(summary.original_url.encode()).hexdigest()
         doc_id = f"summary_{url_hash}"
         
@@ -72,7 +73,6 @@ class ChromaDBAdapter(ISemanticMemory):
         )
 
     def recall_context(self, query: str, limit: int = 3) -> List[Dict[str, Any]]:
-        """Busca semântica no Hipocampo."""
         results = self.collection.query(
             query_texts=[query],
             n_results=limit
