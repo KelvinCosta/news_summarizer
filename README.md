@@ -1,56 +1,76 @@
-# News Summarizer
+# News Summarizer - News Summarizer (On-Premise SLM Architecture)
 
-An autonomous agent system focused on processing confidential data with an on-premise architecture. The system is designed to run locally using Ollama as the inference engine on consumer-grade hardware (e.g., 12GB VRAM), utilizing Hyper-specialized Small Language Models (SLMs) loaded sequentially to prevent Out-of-Memory (OOM) errors and context window overflows.
+![License](https://img.shields.io/badge/license-MIT-blue.svg)
+![Python](https://img.shields.io/badge/python-3.10%2B-blue.svg)
+![Ollama](https://img.shields.io/badge/ollama-local-orange.svg)
 
-## Architecture
+News Summarizer é um sistema autônomo de inteligência de notícias baseado em *Small Language Models* (SLMs) projetado para rodar 100% On-Premise (local) em hardwares de consumo (ex: RTX 3060 12GB). 
 
-This project is built around strict architectural patterns:
+O projeto adota princípios avançados de Engenharia de Software, incluindo **CQRS, Event Sourcing, Funis O(1) e Arquitetura Map-Reduce**, para extrair, filtrar, resumir e vetorizar informações não-estruturadas da internet de forma determinística e com privacidade absoluta.
 
-*   **Finite State Machine (FSM) Orchestration:** The flow is governed by a rigid orchestrator ensuring immutable transitions through routing, retrieval, inference, and validation, preventing infinite loops between agents.
-*   **CQRS and Event Sourcing:** Memory management is strictly divided. An *Immutable Log* (Event Sourcing) acts as append-only for inference failures and human corrections. The vector database acts as the *Read Model* (CQRS), storing consolidated heuristics.
-*   **Fail-Fast and Human-in-the-Loop (HITL):** A guardrail module instantly opens the circuit (zero retries) upon detecting hallucinations, returning control to the user.
-*   **Asymmetric Tagging:** Multitenant isolation via directional inheritance tags in the vector DB to prevent data bleeding across sessions.
+## 🧠 Arquitetura
 
-## Prerequisites
+O sistema foi concebido para ser blindado contra alucinações e estouros de memória (OOM), dividindo o fluxo de processamento em etapas assíncronas isoladas:
 
-*   Python 3.10+
-*   Ollama (must be installed and running locally for Phase 2)
+1. **Ingestão e Funil O(1) (Filtro Bayesiano e Lexical):**
+   - Captura dados de feeds RSS.
+   - Utiliza **SimHash (Hamming Distance)** para descartar redundâncias jornalísticas em tempo constante O(1).
+   - Utiliza um **Classificador Naive Bayes** (*Cold Start* via `vocabulary_seed.json`) para barrar tópicos irrelevantes antes que consumam ciclos da GPU.
 
-## Setup and Execution
+2. **Event Sourcing (Parquet):**
+   - A verdade bruta e todos os estados intermediários (Notícias -> Resumos Individuais -> Mega Boletins) são salvos de forma imutável (*append-only*) na camada de persistência via **Polars** (arquivos `.parquet`).
 
-1.  **Clone the repository:**
-    ```bash
-    git clone <repository-url>
-    cd news_summarizer
-    ```
+3. **Map-Reduce (Agentes Locais via Ollama):**
+   - **MAP (Agente 1):** Lê artigos extensos e extrai a síntese (3 parágrafos).
+   - **REDUCE (Agente Master):** Coleta todos os resumos do dia e consolida um Mega-Boletim Executivo cruzando as tendências.
 
-2.  **Create and activate a virtual environment (Recommended):**
-    ```bash
-    python3 -m venv .venv
-    source .venv/bin/activate
-    ```
+4. **Hipocampo RAG (ChromaDB):**
+   - Atua como o *Read Model* da arquitetura CQRS.
+   - Vetoriza a inteligência destilada usando o modelo leve `nomic-embed-text`.
+   - Permite consultas semânticas no "Modo Oráculo Estrito": o LLM (`llama3.2`) responde a perguntas cirúrgicas com 100% de rastreabilidade (auditoria da origem) e sem alucinações baseadas em pesos de pré-treinamento da internet.
 
-3.  **Install dependencies:**
-    ```bash
-    pip install -r requirements.txt
-    ```
+## 🚀 Instalação e Execução
 
-4.  **Run the basic architecture simulation (Sprint 1):**
-    To run the base FSM orchestrator and CQRS simulation:
-    ```bash
-    python3 main.py
-    ```
+### Pré-requisitos
+* Python 3.10+
+* [Ollama](https://ollama.com/) rodando localmente.
+* Modelos necessários no Ollama:
+  ```bash
+  ollama pull llama3.2
+  ollama pull nomic-embed-text
+  ```
 
-5.  **Run the Ingestion and O(1) Funnel (Sprint 2):**
-    To test the RSS fetching, Parquet Event Store, SimHash and Bayesian filters:
-    ```bash
-    python3 test_ingestion.py
-    ```
-    *Note: This script will generate a `vocabulary_seed.json` file on its first run and a `data/parquet/` directory to store the accepted articles.*
+### Como configurar
+1. Clone o repositório e crie um ambiente virtual:
+   ```bash
+   git clone https://github.com/SEU_USUARIO/news_summarizer.git
+   cd news_summarizer
+   python -m venv .venv
+   source .venv/bin/activate  # ou .venv\Scripts\activate no Windows
+   ```
+2. Instale as dependências:
+   ```bash
+   pip install -r requirements.txt
+   ```
 
-6.  **Run the Summarization Agent (Sprint 3):**
-    To test the SLM reading from Parquet and generating summaries:
-    ```bash
-    python3 test_summarizer.py
-    ```
-    *Note: Ensure Ollama is running and the model is downloaded (e.g., `ollama run llama3.2`).*
+*(Certifique-se de preencher o arquivo `vocabulary_seed.json` com suas palavras de interesse para o Filtro Bayesiano).*
+
+### Como rodar a esteira
+A arquitetura foi desenhada em módulos isolados que podem ser orquestrados por uma *cronjob*:
+
+```bash
+# 1. Busca feeds, aplica o funil matemático O(1) e salva a verdade bruta no Parquet
+python test_ingestion.py
+
+# 2. Executa a Injeção de LLM (Map-Reduce) e retroalimenta o ChromaDB
+python test_summarizer.py
+
+# 3. Interage com a Interface (Menu CLI) para ler boletins ou consultar o RAG
+python view_bulletins.py
+```
+
+## 🤝 Contribuição
+Este projeto tem arquitetura aberta sob licença MIT. A intenção é amadurecer a estrutura de Agentes SLM Locais. Contribuições na construção de interfaces Web (React/Vue), conteinerização (Docker) e refatoração de Workers assíncronos são muito bem-vindas!
+
+## 📄 Licença
+Distribuído sob a licença MIT. Veja `LICENSE` para mais informações.
