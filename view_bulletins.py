@@ -8,7 +8,7 @@ import ollama
 
 def chat_with_kelvin(memory: ChromaDBAdapter):
     print("\n" + "="*80)
-    print("🧠  - Terminal de RAG (Busca Semântica)")
+    print("🧠  - Terminal de RAG (Busca Semântica - Modo Oráculo Estrito)")
     print("Faça perguntas sobre as notícias já processadas.")
     print("="*80)
     
@@ -19,24 +19,24 @@ def chat_with_kelvin(memory: ChromaDBAdapter):
                 break
                 
             print(" (Buscando memórias...)")
-            contexts = memory.recall_context(query, limit=5) # Aumentado para 5 para ter mais contexto
+            contexts = memory.recall_context(query, limit=5)
             
             if not contexts:
-                print(": Não encontrei nenhuma memória consolidada.")
+                print(": Não encontrei nenhuma memória consolidada na base vetorial.")
                 continue
                 
             context_text = "\n\n---\n\n".join([c["content"] for c in contexts])
             
             prompt = (
-                f"Responda à PERGUNTA do usuário baseando-se ÚNICA E EXCLUSIVAMENTE nos textos da MEMÓRIA VETORIAL abaixo.\n"
-                f"Se a pergunta for ampla (ex: 'fale sobre IA'), aja como um repórter e simplesmente relate tudo o que a memória contém sobre o tema.\n"
-                f"NUNCA diga que não possui dados suficientes se o assunto for mencionado na memória, apenas entregue a informação que você tem.\n\n"
+                f"Responda à pergunta do usuário usando APENAS as informações fornecidas na MEMÓRIA VETORIAL.\n"
+                f"Se a memória vetorial contiver a resposta, extraia a informação e responda de forma direta.\n"
+                f"Se a memória vetorial NÃO contiver a resposta, você deve responder exatamente com a frase: 'Não possuo dados suficientes em minha base interna para responder a esta pergunta.'\n\n"
                 f"MEMÓRIA VETORIAL:\n{context_text}\n\n"
                 f"PERGUNTA: {query}"
             )
             
             response = ollama.chat(model="llama3.2", messages=[
-                {"role": "system", "content": "Você é , um orquestrador que extrai informações de uma base de dados. Você nunca recusa uma resposta se tiver contexto relevante."},
+                {"role": "system", "content": "Você é , um assistente focado em responder estritamente com base nos textos fornecidos na memória vetorial."},
                 {"role": "user", "content": prompt}
             ])
             print(f"\n: {response['message']['content']}")
@@ -102,7 +102,7 @@ def view_by_date(store: ParquetStore, memory: ChromaDBAdapter):
                             processed_at=datetime.utcnow()
                         )
                         store.append_daily_summary(new_daily)
-                        memory.store_daily_summary(new_daily) # SALVANDO NO CHROMA
+                        memory.store_daily_summary(new_daily)
                         
                         print("\n" + "="*80)
                         print(f"🌟 MEGA-BOLETIM DO DIA: {selected_date} (Gerado agora, salvo e vetorizado!)")
