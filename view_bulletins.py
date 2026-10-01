@@ -8,40 +8,39 @@ import ollama
 
 def chat_with_kelvin(memory: ChromaDBAdapter):
     print("\n" + "="*80)
-    print("🧠 Terminal de RAG (Busca Semântica)")
+    print("🧠  - Terminal de RAG (Busca Semântica)")
     print("Faça perguntas sobre as notícias já processadas.")
     print("="*80)
     
     while True:
-        query = input("\nVocê: ")
-        if query.lower() in ['q', 'sair', 'exit']:
-            break
-            
-        print("Buscando memórias...")
-        contexts = memory.recall_context(query, limit=3)
-        
-        if not contexts:
-            print("Não encontrei nenhuma memória consolidada sobre este assunto.")
-            continue
-            
-        # Montar o Prompt com o Contexto Injetado
-        context_text = "\n\n---\n\n".join([c["content"] for c in contexts])
-        
-        prompt = (
-            f"Use ESTRITAMENTE as informações abaixo para responder a pergunta do usuário.\n"
-            f"Se a informação não estiver no contexto, diga que não possui dados suficientes em memória.\n\n"
-            f"MEMÓRIA VETORIAL:\n{context_text}\n\n"
-            f"PERGUNTA: {query}"
-        )
-        
         try:
+            query = input("\nVocê: ")
+            if query.lower() in ['q', 'sair', 'exit']:
+                break
+                
+            print(" (Buscando memórias...)")
+            contexts = memory.recall_context(query, limit=5) # Aumentado para 5 para ter mais contexto
+            
+            if not contexts:
+                print(": Não encontrei nenhuma memória consolidada.")
+                continue
+                
+            context_text = "\n\n---\n\n".join([c["content"] for c in contexts])
+            
+            prompt = (
+                f"Responda à PERGUNTA do usuário baseando-se ÚNICA E EXCLUSIVAMENTE nos textos da MEMÓRIA VETORIAL abaixo.\n"
+                f"Se a pergunta for ampla (ex: 'fale sobre IA'), aja como um repórter e simplesmente relate tudo o que a memória contém sobre o tema.\n"
+                f"NUNCA diga que não possui dados suficientes se o assunto for mencionado na memória, apenas entregue a informação que você tem.\n\n"
+                f"MEMÓRIA VETORIAL:\n{context_text}\n\n"
+                f"PERGUNTA: {query}"
+            )
+            
             response = ollama.chat(model="llama3.2", messages=[
-                {"role": "system", "content": "Você é um agente inteligente operando um sistema de Retrieval-Augmented Generation (RAG)."},
+                {"role": "system", "content": "Você é , um orquestrador que extrai informações de uma base de dados. Você nunca recusa uma resposta se tiver contexto relevante."},
                 {"role": "user", "content": prompt}
             ])
-            print(f"\n{response['message']['content']}")
+            print(f"\n: {response['message']['content']}")
             
-            # Auditoria (Rastreabilidade)
             print("\n[Auditoria de Memória]")
             for c in contexts:
                 meta = c['metadata']
@@ -49,6 +48,7 @@ def chat_with_kelvin(memory: ChromaDBAdapter):
                 print(f" - Origem: {tipo} | Data: {meta.get('date', meta.get('processed_at', ''))}")
         except Exception as e:
             print(f"Erro na Inferência: {e}")
+            break
 
 def view_by_date(store: ParquetStore, memory: ChromaDBAdapter):
     dates = store.get_available_bulletin_dates()
@@ -153,7 +153,7 @@ def main():
     memory = ChromaDBAdapter("data/chroma")
     
     while True:
-        print("\n=== MENU INTERATIVO ===")
+        print("\n=== MENU INTERATIVO  ===")
         print("[1] Visualizar Mega-Boletins por Data (Visão Diária)")
         print("[2] Visualizar Boletins Parciais (Sessões Específicas)")
         print("[3] Fazer uma pergunta (RAG / Memória Semântica)")
@@ -168,7 +168,7 @@ def main():
             elif choice == '3':
                 chat_with_kelvin(memory)
             elif choice == '4' or choice.lower() == 'q':
-                print("Finalizando. Até logo!")
+                print("Saindo do ")
                 break
             else:
                 print("Opção inválida.")
