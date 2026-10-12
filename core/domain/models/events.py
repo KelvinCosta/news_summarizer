@@ -6,6 +6,8 @@ reconstituição determinística de estado sem efeitos colaterais.
 """
 
 from datetime import datetime, timezone
+import json
+from pathlib import Path
 from typing import Any, List, Optional
 from uuid import uuid4
 from pydantic import BaseModel, ConfigDict, Field
@@ -120,18 +122,44 @@ class ArticleFiltered(DomainEvent):
 class ImmutableEventStore:
     """Log Imutável no padrão Event Sourcing (Append-Only).
 
-    Garante integridade e rastreabilidade de todas as transições de estado do sistema.
+    Garante integridade e rastreabilidade de todas as transições de estado do sistema,
+    com suporte a persistência durável em disco (JSONL / Parquet) para auditoria perene.
     """
 
-    def __init__(self) -> None:
+    DEFAULT_STORAGE_PATH: str = "data/events/audit_log.jsonl"
+
+    def __init__(self, storage_path: Optional[str] = DEFAULT_STORAGE_PATH) -> None:
         self._log: List[DomainEvent] = []
+        self._storage_path: Optional[Path] = Path(storage_path) if storage_path else None
+
+        if self._storage_path:
+            try:
+                self._storage_path.parent.mkdir(parents=True, exist_ok=True)
+            except Exception:
+                pass
+
+    @property
+    def storage_path(self) -> Optional[Path]:
+        return self._storage_path
 
     def append(self, event: DomainEvent) -> None:
-        """Adiciona um evento de domínio ao log de forma estritamente imutável."""
+        """Adiciona um evento de domínio ao log em memória e persiste em disco de forma append-only."""
         self._log.append(event)
 
+        if self._storage_path:
+            try:
+                record = {
+                    "event_type": type(event).__name__,
+                    **event.model_dump(mode="json"),
+                }
+                with open(self._storage_path, "a", encoding="utf-8") as f:
+                    f.write(json.dumps(record, ensure_ascii=False) + "\n")
+            except Exception:
+                # Falha de I/O de disco não derruba o pipeline em memória
+                pass
+
     def get_events(self, session_id: Optional[str] = None) -> List[DomainEvent]:
-        """Retorna os eventos registrados, opcionalmente filtrados por session_id."""
+        """Retorna os eventos da sessão em memória, opcionalmente filtrados por session_id."""
         if session_id is None:
             return list(self._log)
         return [e for e in self._log if e.session_id == session_id]
@@ -141,7 +169,28 @@ class ImmutableEventStore:
         return [e for e in self._log if isinstance(e, HumanCorrectionProvidedEvent)]
 
     def to_dict_list(self, session_id: Optional[str] = None) -> List[dict[str, Any]]:
-        """Serializa os eventos para formato de dicionário."""
+        """Serializa os eventos da sessão atual para formato de dicionário."""
         events = self.get_events(session_id)
         return [e.model_dump() for e in events]
 
+    def load_persistent_history(self, limit: Optional[int] = None) -> List[dict[str, Any]]:
+        """Recupera o histórico persistido no banco/disco de todas as sessões para auditoria."""
+        if not self._storage_path or not self._storage_path.exists():
+            return []
+
+        records: List[dict[str, Any]] = []
+        try:
+            with open(self._storage_path, "r", encoding="utf-8") as f:
+                for line in f:
+                    line_str = line.strip()
+                    if line_str:
+                        try:
+                            records.append(json.loads(line_str))
+                        except Exception:
+                            continue
+        except Exception:
+            return []
+
+        if limit is not None:
+            return records[-limit:]
+        return records

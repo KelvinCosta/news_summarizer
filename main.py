@@ -215,23 +215,51 @@ class NewsSummarizerApp:
                 print(f"Erro no processamento: {e}")
 
     def view_audit_log(self) -> None:
-        events = self.event_store.get_events()
-        if not events:
-            print("\n[!] Nenhum evento registrado na sessão atual ainda.")
-            return
+        session_events = self.event_store.get_events()
+        history = self.event_store.load_persistent_history()
 
         print("\n" + "=" * 75)
-        print(f"📋 TRILHA DE AUDITORIA - EVENT SOURCING ({len(events)} eventos)")
+        print("📋 TRILHA DE AUDITORIA & FORENSE - EVENT SOURCING")
         print("=" * 75)
-        for ev in events:
-            ts = ev.timestamp.strftime("%H:%M:%S")
-            print(f"[{ts}] {type(ev).__name__} | session_id: {ev.session_id}")
-            if hasattr(ev, "intent"):
-                print(f"        └─ intent: {ev.intent.value}")
-            elif hasattr(ev, "reason"):
-                print(f"        └─ reason: {ev.reason}")
-            elif hasattr(ev, "url"):
-                print(f"        └─ {ev.title} ({getattr(ev, 'status', 'ingested')})")
+        print(f"• Eventos na sessão atual (memória): {len(session_events)}")
+        print(f"• Total histórico gravado em disco  : {len(history)} (data/events/audit_log.jsonl)")
+
+        if history:
+            guardrails_count = sum(1 for e in history if e.get("event_type") == "GuardrailTriggered")
+            handoffs_count = sum(1 for e in history if e.get("event_type") == "HandoffTriggered")
+            queries_count = sum(1 for e in history if e.get("event_type") == "UserMessageReceived")
+            corrections_count = sum(1 for e in history if e.get("event_type") == "HumanCorrectionProvidedEvent")
+
+            print("\n--- Estatísticas Forenses do Sistema ---")
+            print(f"  Total de Mensagens Recebidas : {queries_count}")
+            print(f"  Guardrails Factuais Acionados: {guardrails_count}")
+            print(f"  Transbordos / Recusas Seguras: {handoffs_count}")
+            print(f"  Intervenções Humanas (HITL)  : {corrections_count}")
+
+        if not session_events and not history:
+            print("\n[!] Nenhum evento registrado ainda.")
+            print("=" * 75)
+            return
+
+        print("\nÚltimos 10 eventos registrados:")
+        recent = history[-10:] if history else [
+            {"event_type": type(e).__name__, "timestamp": e.timestamp.isoformat(), "session_id": e.session_id}
+            for e in session_events[-10:]
+        ]
+        for rec in recent:
+            etype = rec.get("event_type", "Event")
+            ts = rec.get("timestamp", "")[:19]
+            sid = rec.get("session_id", "")
+            extra = ""
+            if "intent" in rec:
+                extra = f" | intent={rec['intent']}"
+            elif "guardrail_name" in rec:
+                extra = f" | guardrail={rec['guardrail_name']} ({rec.get('reason', '')})"
+            elif "reason" in rec:
+                extra = f" | reason={rec['reason']}"
+            elif "status" in rec:
+                extra = f" | {rec.get('title', '')} ({rec['status']})"
+            print(f" [{ts}] {etype} | session={sid}{extra}")
         print("=" * 75)
 
     def start(self) -> None:
