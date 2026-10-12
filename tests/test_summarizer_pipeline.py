@@ -101,4 +101,30 @@ class TestSummarizerPipeline:
         assert result["processed_count"] == 1
         assert summarizer_agent.summarize.call_count == 1
 
+    def test_ollama_summarizer_agent_truncation_and_sanitization(self):
+        mock_client = MagicMock()
+        mock_client.generate.return_value = "Resumo gerado."
+        agent = OllamaSummarizerAgent(client=mock_client)
+
+        huge_html_text = "<p>Texto com <b>HTML</b></p> " + ("A" * 6000)
+        summary = agent.summarize(huge_html_text)
+
+        assert summary == "Resumo gerado."
+        call_args = mock_client.generate.call_args[1]
+        prompt = call_args["prompt"]
+        # Garante que as tags HTML foram removidas e o texto foi truncado
+        assert "<p>" not in prompt
+        assert "<b>" not in prompt
+        assert len(prompt) < 5500
+
+    def test_ollama_master_agent_daily_consolidation(self):
+        mock_client = MagicMock()
+        mock_client.generate.return_value = "Mega Boletim Consolidado."
+        master = OllamaMasterAgent(client=mock_client)
+
+        res = master.generate_daily_master(["Boletim 1", "Boletim 2"], "2026-10-12")
+        assert res == "Mega Boletim Consolidado."
+        mock_client.generate.assert_called_once()
+
+
 
