@@ -222,33 +222,48 @@ class NewsSummarizerApp:
             print("Entrada inválida.")
 
     def view_individual_summaries(self) -> None:
-        summaries = self.parquet_store.get_all_summaries()
-        if not summaries:
+        all_summaries = self.parquet_store.get_all_summaries()
+        if not all_summaries:
             print("\n[!] Nenhum resumo encontrado no banco de dados.")
             print("Dica: Use a opção [2] para processar notícias primeiro.")
             return
 
-        total = len(summaries)
+        current_list = all_summaries
+        filter_term = ""
         page_size = 10
         page = 0
-        total_pages = (total + page_size - 1) // page_size
 
         while True:
+            total = len(current_list)
+            total_pages = max(1, (total + page_size - 1) // page_size)
+            if page >= total_pages:
+                page = total_pages - 1
+
             start_idx = page * page_size
             end_idx = min(start_idx + page_size, total)
-            page_items = summaries[start_idx:end_idx]
+            page_items = current_list[start_idx:end_idx]
 
+            header_info = f"[🔍 Filtro: '{filter_term}' - {total} encontrados]" if filter_term else f"[Total: {total}]"
             print("\n" + "=" * 75)
-            print(f"📚 SUMÁRIOS INDIVIDUAIS DE NOTÍCIAS (Página {page + 1}/{total_pages} - Total: {total})")
+            print(f"📚 SUMÁRIOS INDIVIDUAIS DE NOTÍCIAS {header_info} (Página {page + 1}/{total_pages})")
             print("=" * 75)
-            for i, s in enumerate(page_items, start=start_idx):
-                dt = s.get("processed_at")
-                dt_str = dt.strftime("%d/%m %H:%M") if hasattr(dt, "strftime") else str(dt)[:16]
-                title = s.get("title", "Sem título")
-                short_title = (title[:58] + "...") if len(title) > 58 else title
-                print(f"[{i:03d}] [{dt_str}] {short_title}")
 
-            print("\nComandos: [número] Ler resumo | [p] Próxima | [a] Anterior | [f] Filtrar/Buscar | [v] Voltar")
+            if total == 0:
+                print(f"\n  Nenhum resumo encontrado para o filtro '{filter_term}'.")
+            else:
+                for i, s in enumerate(page_items, start=start_idx):
+                    dt = s.get("processed_at")
+                    dt_str = dt.strftime("%d/%m %H:%M") if hasattr(dt, "strftime") else str(dt)[:16]
+                    title = s.get("title", "Sem título")
+                    short_title = (title[:58] + "...") if len(title) > 58 else title
+                    print(f"[{i:03d}] [{dt_str}] {short_title}")
+
+            nav_commands = "[número] Ler resumo | [p] Próxima | [a] Anterior | [f] Filtrar/Buscar"
+            if filter_term:
+                nav_commands += " | [c] Limpar filtro"
+            nav_commands += " | [v] Voltar"
+
+            print(f"\nComandos: {nav_commands}")
             choice = input("Escolha: ").strip().lower()
 
             if choice in ["v", "voltar", "q", "sair"]:
@@ -263,30 +278,28 @@ class NewsSummarizerApp:
                     page -= 1
                 else:
                     print("\n[!] Você já está na primeira página.")
+            elif choice in ["c", "limpar", "clear"]:
+                current_list = all_summaries
+                filter_term = ""
+                page = 0
+                print("\n[✓] Filtro removido. Exibindo todos os resumos.")
             elif choice in ["f", "buscar", "filtro"]:
-                term = input("\nTermo de busca (palavra-chave no título ou texto): ").strip().lower()
+                term = input("\nDigite o termo de busca (ou Enter para cancelar): ").strip()
                 if term:
-                    filtered = [
-                        (idx, s) for idx, s in enumerate(summaries)
-                        if term in s.get("title", "").lower() or term in s.get("summary", "").lower()
+                    matches = [
+                        s for s in all_summaries
+                        if term.lower() in s.get("title", "").lower() or term.lower() in s.get("summary", "").lower()
                     ]
-                    if not filtered:
-                        print(f"\n[!] Nenhum resumo encontrado contendo '{term}'.")
-                    else:
-                        print(f"\n🔍 Encontrados {len(filtered)} resultados para '{term}':")
-                        for f_idx, (orig_idx, sf) in enumerate(filtered[:15]):
-                            t = sf.get("title", "")
-                            print(f"  [{f_idx:02d}] (Item #{orig_idx:03d}) {t[:60]}")
-                        sub_choice = input("\nDigite o número [0-14] para ler (ou Enter para voltar): ").strip()
-                        if sub_choice.isdigit() and int(sub_choice) < len(filtered):
-                            sel = filtered[int(sub_choice)][1]
-                            self._print_single_summary(sel)
+                    current_list = matches
+                    filter_term = term
+                    page = 0
+                    print(f"\n🔍 {len(matches)} resultados encontrados para '{term}'.")
             elif choice.isdigit():
                 idx = int(choice)
                 if 0 <= idx < total:
-                    self._print_single_summary(summaries[idx])
+                    self._print_single_summary(current_list[idx])
                 else:
-                    print("\n[!] Número fora do intervalo.")
+                    print("\n[!] Número fora do intervalo da lista atual.")
             else:
                 print("\n[!] Entrada inválida.")
 
