@@ -1,3 +1,8 @@
+import os
+os.environ["ANONYMIZED_TELEMETRY"] = "False"
+import logging
+logging.getLogger("chromadb.telemetry").setLevel(logging.CRITICAL)
+
 import chromadb
 from chromadb.config import Settings
 import ollama
@@ -5,20 +10,31 @@ from typing import List, Dict, Any
 from core.domain.ports import ISemanticMemory
 from core.domain.article import SummarizedArticle, DailySummary
 
+from core.infrastructure.adapters.ollama_client import OllamaClient
+
 class OllamaEmbeddingFunction:
     """Função customizada para gerar embeddings via Ollama local (On-Premise)."""
-    def __init__(self, model_name: str = "nomic-embed-text"):
+    def __init__(self, model_name: str = "nomic-embed-text", client: OllamaClient = None):
         self.model_name = model_name
+        self.client = client or OllamaClient()
 
     def __call__(self, input: List[str]) -> List[List[float]]:
         embeddings = []
         for text in input:
             try:
-                response = ollama.embeddings(model=self.model_name, prompt=text)
-                embeddings.append(response["embedding"])
+                emb = self.client.embeddings(text, model=self.model_name)
+                if emb:
+                    embeddings.append(emb)
+                else:
+                    response = ollama.embeddings(model=self.model_name, prompt=text)
+                    embeddings.append(response["embedding"])
             except Exception as e:
-                print(f"[ERRO] Falha ao gerar embedding com {self.model_name}. Ele está instalado? (ollama pull {self.model_name})")
-                raise e
+                try:
+                    response = ollama.embeddings(model=self.model_name, prompt=text)
+                    embeddings.append(response["embedding"])
+                except Exception as inner_e:
+                    print(f"[ERRO] Falha ao gerar embedding com {self.model_name}. Ele está instalado? (ollama pull {self.model_name})")
+                    raise inner_e
         return embeddings
 
 class ChromaDBAdapter(ISemanticMemory):

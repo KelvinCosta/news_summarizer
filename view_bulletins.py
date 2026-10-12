@@ -6,46 +6,38 @@ from core.domain.article import DailySummary
 from core.inference.ollama_agent import OllamaMasterAgent
 import ollama
 
+from core.fsm.orchestrator import FSMOrchestrator
+
 def chat_with_kelvin(memory: ChromaDBAdapter):
     print("\n" + "="*80)
-    print("🧠  - Terminal de RAG (Busca Semântica - Modo Oráculo Estrito)")
+    print("🧠 Terminal de RAG - Modo Oráculo Estrito (Clean Architecture)")
     print("Faça perguntas sobre as notícias já processadas.")
     print("="*80)
     
+    orchestrator = FSMOrchestrator(semantic_memory=memory)
+
     while True:
         try:
-            query = input("\nVocê: ")
+            query = input("\nVocê: ").strip()
+            if not query:
+                continue
             if query.lower() in ['q', 'sair', 'exit']:
                 break
                 
-            print(" (Buscando memórias...)")
-            contexts = memory.recall_context(query, limit=5)
+            print(" (Processando estágios do pipeline...)")
+            result = orchestrator.handle_message(query)
             
-            if not contexts:
-                print(": Não encontrei nenhuma memória consolidada na base vetorial.")
-                continue
+            print(f"\nOráculo [{result.intent.value}]:\n{result.response}")
+            
+            if result.handoff_triggered:
+                print(f"[Transbordo / Aviso]: Motivo={result.handoff_reason}")
                 
-            context_text = "\n\n---\n\n".join([c["content"] for c in contexts])
-            
-            prompt = (
-                f"Responda à pergunta do usuário usando APENAS as informações fornecidas na MEMÓRIA VETORIAL.\n"
-                f"Se a memória vetorial contiver a resposta, extraia a informação e responda de forma direta.\n"
-                f"Se a memória vetorial NÃO contiver a resposta, você deve responder exatamente com a frase: 'Não possuo dados suficientes em minha base interna para responder a esta pergunta.'\n\n"
-                f"MEMÓRIA VETORIAL:\n{context_text}\n\n"
-                f"PERGUNTA: {query}"
-            )
-            
-            response = ollama.chat(model="llama3.2", messages=[
-                {"role": "system", "content": "Você é , um assistente focado em responder estritamente com base nos textos fornecidos na memória vetorial."},
-                {"role": "user", "content": prompt}
-            ])
-            print(f"\n: {response['message']['content']}")
-            
-            print("\n[Auditoria de Memória]")
-            for c in contexts:
-                meta = c['metadata']
-                tipo = meta.get('type', 'desconhecido')
-                print(f" - Origem: {tipo} | Data: {meta.get('date', meta.get('processed_at', ''))}")
+            if result.contexts:
+                print("\n[Auditoria de Memória]")
+                for c in result.contexts:
+                    meta = c.get('metadata', {})
+                    tipo = meta.get('type', 'desconhecido')
+                    print(f" - Origem: {tipo} | Data: {meta.get('date', meta.get('processed_at', ''))}")
         except Exception as e:
             print(f"Erro na Inferência: {e}")
             break

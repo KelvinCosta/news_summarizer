@@ -1,12 +1,17 @@
-# Core APIs for Phase 2 Integration (LLM/Vector)
+# Clean Architecture Pipeline (Sem frameworks monolíticos)
+httpx>=0.25.0
+pydantic>=2.0.0
+requests>=2.31.0
+
+# LLM & Vector Database (On-Premise)
 chromadb==0.4.24
 ollama==0.1.7
 
-# Sprint 2: Ingestion & Filtering
+# Ingestion, Data Lake & Funil O(1)
 feedparser==6.0.11
 polars==0.20.10
 pyarrow==15.0.0
 simhash==2.1.2
 
-# Utilities
-requests==2.31.0
+# Testes e Qualidade
+pytest>=8.0.0
