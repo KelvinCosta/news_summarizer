@@ -160,3 +160,37 @@ class TestHybridRetrieverService:
         assert retrieval_events[0].strategy == "hybrid_rag"
         assert retrieval_events[0].result_count >= 1
 
+    def test_bilingual_expansion_casa_branca_searches_white_house(self, mock_parquet, mock_memory):
+        """Verifica se uma busca por 'casa branca' aciona a busca léxica de 'white house'."""
+        mock_parquet.search_summaries_by_keyword.side_effect = lambda kw, limit: [
+            {"title": "White House AI summit", "summary": "White House AI summit details", "original_url": "https://wh.gov"}
+        ] if kw.lower() == "white house" else []
+
+        retriever = HybridRetrieverService(semantic_memory=mock_memory, parquet_store=mock_parquet)
+        filters = NewsFilterSchema(palavra_chave="casa branca", limite=5)
+
+        contexts = retriever.retrieve(query="me fale sobre a casa branca", filters=filters, limit=5)
+
+        assert len(contexts) >= 1
+        assert contexts[0]["metadata"]["title"] == "White House AI summit"
+        # Garante que search_summaries_by_keyword foi chamado tanto para 'casa branca' quanto 'white house'
+        called_keywords = [call.args[0].lower() for call in mock_parquet.search_summaries_by_keyword.call_args_list]
+        assert "casa branca" in called_keywords
+        assert "white house" in called_keywords
+
+    def test_bilingual_expansion_query_direct_entity_detection(self, mock_parquet, mock_memory):
+        """Verifica se entidades bilíngues são detectadas diretamente na query mesmo sem palavra_chave extraída."""
+        mock_parquet.search_summaries_by_keyword.side_effect = lambda kw, limit: [
+            {"title": "White House AI summit", "summary": "White House AI summit details", "original_url": "https://wh.gov"}
+        ] if kw.lower() == "white house" else []
+
+        retriever = HybridRetrieverService(semantic_memory=mock_memory, parquet_store=mock_parquet)
+
+        contexts = retriever.retrieve(query="quais as noticias da casa branca?", filters=None, limit=5)
+
+        assert len(contexts) >= 1
+        called_keywords = [call.args[0].lower() for call in mock_parquet.search_summaries_by_keyword.call_args_list]
+        assert "casa branca" in called_keywords
+        assert "white house" in called_keywords
+
+

@@ -12,28 +12,27 @@ from core.domain.ports import ISemanticMemory
 from core.infrastructure.adapters.ollama_client import OllamaClient
 
 
-FACTUAL_SYSTEM_PROMPT = """Você é o Oráculo Estrito do News Summarizer.
-Seu objetivo é responder à pergunta do usuário utilizando EXCLUSIVAMENTE o conteúdo contido na <base_conhecimento> e a data de referência do sistema.
+FACTUAL_SYSTEM_PROMPT = """Você é o Oráculo Estrito de Notícias do News Summarizer.
+Sua função é sintetizar e responder EXCLUSIVAMENTE relatando os acontecimentos, declarações e anúncios noticiados nos documentos em <base_conhecimento>.
 
 Regras inegociáveis:
-1. Responda APENAS com base nos fatos contidos em <base_conhecimento> ou nos metadados de data de referência informados.
-2. Se a pergunta envolver a data de hoje ou calendário atual, responda utilizando a [Data de referência do sistema] informada.
-3. Se a <base_conhecimento> mencionar a entidade, projeto, empresa ou pessoa perguntada, relate tudo o que constar no texto sobre ela de forma objetiva, direta e sucinta.
-4. Se a <base_conhecimento> NÃO contiver NENHUMA informação ou menção sobre o assunto perguntado (e não for sobre a data de hoje), responda EXATAMENTE a seguinte frase:
-"Não possuo dados suficientes em minha base interna para responder a esta pergunta."
-5. Não use conhecimento prévio ou externo sobre a internet. Não invente datas, fatos, nomes ou acontecimentos.
-6. Responda de forma direta, clara e sucinta em Português do Brasil.
+1. Responda apenas com base nas notícias fornecidas em <base_conhecimento>.
+2. É terminantemente PROIBIDO responder com conhecimentos gerais pré-treinados ou fatos de enciclopédia (como explicar o que é a Casa Branca, sua localização, ou história geral). Relate apenas os acontecimentos noticiados nos documentos.
+3. Comece diretamente pelos fatos noticiados (ex: "De acordo com as notícias arquivadas...").
+4. Termos e nomes próprios em português e inglês referem-se à mesma entidade (ex: White House = Casa Branca, EUA = US/USA, IA = AI).
+5. Se a pergunta envolver a data de hoje ou calendário atual, use a [Data de referência do sistema].
+6. Se nenhuma das notícias em <base_conhecimento> contiver fatos ou menções sobre o tema consultado, declare claramente que não há informações sobre esse assunto nas notícias arquivadas.
+7. Responda de forma direta, clara e sucinta em Português do Brasil.
 """
 
 SUMMARY_SYSTEM_PROMPT = """Você é o Oráculo de Notícias do News Summarizer.
-Seu objetivo é sintetizar as notícias e tendências com base EXCLUSIVAMENTE no conteúdo de <base_conhecimento>.
+Seu objetivo é sintetizar as notícias com base EXCLUSIVAMENTE no conteúdo de <base_conhecimento>.
 
 Diretrizes:
-1. Apresente um resumo claro, estruturado e em tópicos dos acontecimentos e tendências das notícias mais recentes presentes na <base_conhecimento>.
-2. Se o usuário perguntar pelas notícias de hoje, novidades ou resumo geral, sintetize as notícias mais recentes fornecidas, destacando seus títulos ou tópicos.
-3. NÃO invente notícias que não constem na <base_conhecimento>.
-4. Se a <base_conhecimento> estiver vazia ou for sobre assunto completamente diferente sem relação, responda:
-"Não possuo dados suficientes em minha base interna para responder a esta pergunta."
+1. Apresente um resumo claro e objetivo dos acontecimentos, anúncios e tendências noticiados em <base_conhecimento>.
+2. É terminantemente PROIBIDO adicionar conhecimentos pré-treinados ou fatos gerais de enciclopédia. Limite-se estritamente aos fatos descritos nos documentos.
+3. Nomes próprios e entidades bilíngues em inglês e português referem-se à mesma entidade (ex: White House = Casa Branca, EUA = US/USA, IA = AI).
+4. Se os documentos não contiverem o assunto, informe claramente que as notícias arquivadas não contêm essa informação.
 5. Responda em Português do Brasil de forma executiva, objetiva e fluida.
 """
 
@@ -137,9 +136,13 @@ class GroundedOracleService:
 
         prompt = (
             f"<base_conhecimento>\n{context_body}\n</base_conhecimento>\n\n"
-            f"[Data de referência do sistema: {now_full} - {now_str}]\n"
-            f"Pergunta do usuário: {user_query.strip()}\n"
-            "Resposta:"
+            f"[Data de referência do sistema: {now_full} - {now_str}]\n\n"
+            f"Consulta do usuário: \"{user_query.strip()}\"\n"
+            f"Equivalência de entidades: Nomes em inglês e português referem-se à mesma entidade (ex: White House = Casa Branca, EUA = US/USA, IA = AI).\n\n"
+            f"Tarefa: Sintetize o que as notícias arquivadas acima em <base_conhecimento> relatam sobre o assunto consultado.\n"
+            f"Apresente os fatos, anúncios, acordos e acontecimentos noticiados nos documentos.\n"
+            f"PROIBIDO: Não defina prédios, história geral ou conhecimentos externos de enciclopédia. Comece relatando diretamente os acontecimentos noticiados. Se os documentos não contiverem o assunto, informe que não há informações nas notícias arquivadas.\n\n"
+            f"Resposta baseada nas notícias:"
         )
 
         try:
@@ -159,6 +162,13 @@ class GroundedOracleService:
                 "não tenho dados suficientes",
                 "não consta na base",
                 "base de conhecimento não menciona",
+                "não há nenhuma menção",
+                "não há menção",
+                "não foram encontradas informações",
+                "não contêm informações",
+                "não contém informações",
+                "não há informações nas notícias",
+                "não há informações sobre",
             ]
             is_refusal = any(ref in response_text.lower() for ref in refusal_indicators)
             if is_refusal or not response_text:

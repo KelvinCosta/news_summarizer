@@ -5,10 +5,24 @@ com busca semântica vetorial (ChromaDB / ISemanticMemory), aplicando fusão
 e reranking para mitigar a diluição semântica de entidades (Entity Drowning).
 """
 
+import re
 from typing import Any, Dict, List, Optional
 from core.domain.ports import ISemanticMemory
 from core.domain.models.schemas import NewsFilterSchema
 from core.persistence.parquet_store import ParquetStore
+
+
+BILINGUAL_ENTITY_MAP = {
+    "casa branca": ["white house", "casa branca"],
+    "white house": ["casa branca", "white house"],
+    "eua": ["us", "usa", "united states", "estados unidos"],
+    "estados unidos": ["us", "usa", "united states", "eua"],
+    "inteligencia artificial": ["ai", "ia", "artificial intelligence", "inteligência artificial"],
+    "inteligência artificial": ["ai", "ia", "artificial intelligence", "inteligencia artificial"],
+    "uniao europeia": ["eu", "european union", "união europeia"],
+    "união europeia": ["eu", "european union", "uniao europeia"],
+    "reino unido": ["uk", "united kingdom"],
+}
 
 
 class HybridRetrieverService:
@@ -63,21 +77,46 @@ class HybridRetrieverService:
             ):
                 keywords_to_check.append(filters.topico.strip())
 
+        # Varredura direta na query por entidades do mapa bilíngue
+        query_norm = query.lower()
+        for entity_key, aliases in BILINGUAL_ENTITY_MAP.items():
+            if entity_key in query_norm:
+                if entity_key not in [k.lower() for k in keywords_to_check]:
+                    keywords_to_check.append(entity_key)
+                for alias in aliases:
+                    if alias.lower() not in [k.lower() for k in keywords_to_check]:
+                        keywords_to_check.append(alias)
+
         # Heurística complementar caso o extractor não tenha isolado palavra-chave
         if not keywords_to_check and query:
-            words = query.strip().split()
+            clean_q = re.sub(r"[^\w\s-]", " ", query)
+            words = clean_q.strip().split()
             stop_starters = {
                 "me", "fale", "o", "a", "os", "as", "quem", "qual", "quais",
-                "como", "onde", "quando", "sobre", "noticias", "notícias", "da", "do", "de"
+                "como", "onde", "quando", "sobre", "noticias", "notícias", "da", "do", "de",
+                "em", "na", "no", "por", "para", "com", "um", "uma"
             }
             candidates = [
-                w for i, w in enumerate(words)
-                if (i > 0 or w.lower() not in stop_starters)
-                and len(w) > 3
+                w for w in words
+                if len(w) > 2
                 and w.lower() not in stop_starters
             ]
             if candidates:
                 keywords_to_check.append(" ".join(candidates))
+
+        # Expansão bilíngue e limpeza de pontuação das palavras-chave
+        expanded: List[str] = []
+        for kw in keywords_to_check:
+            kw_clean = re.sub(r"[^\w\s-]", "", kw).strip()
+            if kw_clean and kw_clean not in expanded:
+                expanded.append(kw_clean)
+            kw_lower = kw_clean.lower()
+            for entity_key, aliases in BILINGUAL_ENTITY_MAP.items():
+                if entity_key in kw_lower or kw_lower in entity_key:
+                    for alias in aliases:
+                        if alias not in expanded and alias.lower() != kw_lower:
+                            expanded.append(alias)
+        keywords_to_check = expanded
 
         # 2. Busca Léxica no Parquet Lake (Alta Precisão para Entidades)
         if self._parquet_store and keywords_to_check:
@@ -121,17 +160,20 @@ class HybridRetrieverService:
             except Exception:
                 pass
 
-            # Expansão vetorial por palavra_chave caso ainda tenhamos vagas no limite
-            if filters and filters.palavra_chave and len(contexts) < limit:
-                try:
-                    kw_results = self._memory.recall_context(filters.palavra_chave, limit=limit)
-                    for kv in kw_results:
-                        kv_meta = kv.get("metadata", {})
-                        kv_meta.setdefault("match_strategy", "semantic_vector_keyword")
-                        kv["metadata"] = kv_meta
-                        _add_context(kv)
-                except Exception:
-                    pass
+            # Expansão vetorial por termos e aliases bilíngues caso ainda tenhamos vagas no limite
+            if len(contexts) < limit and keywords_to_check:
+                for kw in keywords_to_check:
+                    if len(contexts) >= limit:
+                        break
+                    try:
+                        kw_results = self._memory.recall_context(kw, limit=limit)
+                        for kv in kw_results:
+                            kv_meta = kv.get("metadata", {})
+                            kv_meta.setdefault("match_strategy", "semantic_vector_keyword")
+                            kv["metadata"] = kv_meta
+                            _add_context(kv)
+                    except Exception:
+                        pass
 
         return contexts[:limit]
 
