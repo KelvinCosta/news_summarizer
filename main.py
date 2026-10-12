@@ -51,6 +51,7 @@ class NewsSummarizerApp:
         self.orchestrator = FSMOrchestrator(
             semantic_memory=self.memory,
             event_store=self.event_store,
+            parquet_store=self.parquet_store,
         )
 
     def print_header(self) -> None:

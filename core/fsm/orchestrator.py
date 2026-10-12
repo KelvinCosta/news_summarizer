@@ -33,6 +33,8 @@ from core.domain.ports import ISemanticMemory
 from core.fsm.states import SystemState
 from core.infrastructure.adapters.ollama_client import OllamaClient
 
+from core.persistence.parquet_store import ParquetStore
+
 logger = logging.getLogger(__name__)
 
 
@@ -53,6 +55,7 @@ class FSMOrchestrator:
         self,
         semantic_memory: Optional[ISemanticMemory] = None,
         event_store: Optional[ImmutableEventStore] = None,
+        parquet_store: Optional[ParquetStore] = None,
         client: Optional[OllamaClient] = None,
         gatekeeper: Optional[GatekeeperService] = None,
         query_extractor: Optional[QueryExtractorService] = None,
@@ -65,6 +68,7 @@ class FSMOrchestrator:
         self._client = client or OllamaClient()
         self._semantic_memory = semantic_memory
         self._event_store = event_store or ImmutableEventStore()
+        self._parquet_store = parquet_store
 
         self._gatekeeper = gatekeeper or GatekeeperService(client=self._client)
         self._query_extractor = query_extractor or QueryExtractorService(client=self._client)
@@ -180,10 +184,34 @@ class FSMOrchestrator:
         """Processa pedidos de síntese de tendências diárias ou boletim executivo."""
         self.transition_to(SystemState.RETRIEVING_CONTEXT)
 
-        # Tenta recuperar resumos diários consolidados
         contexts: List[dict] = []
+
+        # 1. Prioriza Boletim Consolidado recente do Parquet se disponível
+        if self._parquet_store:
+            try:
+                bulletins = self._parquet_store.get_all_bulletins()
+                if bulletins:
+                    latest_b = bulletins[0]
+                    contexts.append({
+                        "content": latest_b["content"],
+                        "metadata": {
+                            "type": "mega_boletim",
+                            "processed_at": str(latest_b.get("processed_at", "")),
+                            "title": "Boletim Consolidado do Dia",
+                        },
+                    })
+            except Exception:
+                pass
+
+        # 2. Recupera resumos semânticos complementares
         if self._semantic_memory:
-            contexts = self._semantic_memory.recall_context(user_message, limit=5)
+            limit = 5 - len(contexts)
+            if limit > 0:
+                try:
+                    extra = self._semantic_memory.recall_context(user_message, limit=limit)
+                    contexts.extend(extra)
+                except Exception:
+                    pass
 
         retrieval_event = ContextRetrieved(
             session_id=session_id,
@@ -195,7 +223,9 @@ class FSMOrchestrator:
 
         self.transition_to(SystemState.INFERENCING)
         response_text, retrieved_contexts, is_refusal = self._oracle_service.answer(
-            user_message, limit=5
+            user_message,
+            provided_contexts=contexts if contexts else None,
+            is_summary_mode=True,
         )
 
         self.transition_to(SystemState.VALIDATING)
