@@ -84,42 +84,46 @@ class SummarizerService:
         # FASE 1: MAP (Sumarizações Individuais)
         logger.info("--- FASE 1: MAP (Resumos Individuais) ---")
         total_batch = len(articles)
-        for idx, article in enumerate(articles, 1):
-            title = article["title"]
-            content = article["content"]
-            url = article["url"]
+        try:
+            for idx, article in enumerate(articles, 1):
+                title = article["title"]
+                content = article["content"]
+                url = article["url"]
 
-            if progress_callback:
-                try:
-                    progress_callback(idx, total_batch, title)
-                except Exception:
-                    pass
+                if progress_callback:
+                    try:
+                        progress_callback(idx, total_batch, title)
+                    except Exception:
+                        pass
 
-            logger.info(f"[{SystemState.INFERENCING.value}] [{idx}/{total_batch}] Agente 1 (Summarizer): Lendo '{title}'")
-            summary = self.summarizer_agent.summarize(f"{title}\n\n{content}")
+                logger.info(f"[{SystemState.INFERENCING.value}] [{idx}/{total_batch}] Agente 1 (Summarizer): Lendo '{title}'")
+                summary = self.summarizer_agent.summarize(f"{title}\n\n{content}")
 
-            if summary:
-                summarized_obj = SummarizedArticle(
-                    original_url=url,
-                    title=title,
-                    summary=summary,
-                    processed_at=datetime.now(timezone.utc),
-                )
-                summarized_objects.append(summarized_obj)
+                if summary:
+                    summarized_obj = SummarizedArticle(
+                        original_url=url,
+                        title=title,
+                        summary=summary,
+                        processed_at=datetime.now(timezone.utc),
+                    )
+                    summarized_objects.append(summarized_obj)
 
-                # CHECKPOINT IMEDIATO: Salva cada resumo no Parquet assim que concluído.
-                # Se o usuário cancelar ou houver interrupção, o progresso nunca é perdido.
-                try:
-                    self.parquet_store.append_summaries([summarized_obj])
-                except Exception as e:
-                    logger.warning(f"Erro ao salvar checkpoint incremental no Parquet: {e}")
+                    # CHECKPOINT IMEDIATO: Salva cada resumo no Parquet assim que concluído.
+                    # Se o usuário cancelar ou houver interrupção, o progresso nunca é perdido.
+                    try:
+                        self.parquet_store.append_summaries([summarized_obj])
+                    except Exception as e:
+                        logger.warning(f"Erro ao salvar checkpoint incremental no Parquet: {e}")
 
-                logger.info(f"[{SystemState.COMPLETED.value}] Resumo gerado e gravado no Parquet: '{title}'")
-            else:
-                logger.error(f"[{SystemState.FAILED.value}] Falha na inferência para '{title}'")
+                    logger.info(f"[{SystemState.COMPLETED.value}] Resumo gerado e gravado no Parquet: '{title}'")
+                else:
+                    logger.error(f"[{SystemState.FAILED.value}] Falha na inferência para '{title}'")
 
-            # Arrefecimento breve (100ms) para liberar I/O e evitar congelamento de GPU/TDR no Windows
-            time.sleep(0.1)
+                # Arrefecimento breve (100ms) para liberar I/O e evitar congelamento de GPU/TDR no Windows
+                time.sleep(0.1)
+        except KeyboardInterrupt:
+            logger.warning("Interrupção solicitada pelo usuário (Ctrl+C). Finalizando lote com os resumos concluídos...")
+            print("\n⚠️ Interrupção manual (Ctrl+C) detectada! Prosseguindo para consolidar os resumos já concluídos...")
 
         if not summarized_objects:
             return {

@@ -97,7 +97,7 @@ class OllamaMasterAgent:
                 prompt=prompt,
                 model=self.model_name,
                 system=system_instruction,
-                options={"temperature": 0.2},
+                options={"temperature": 0.2, "num_ctx": 8192},
             )
             return response.strip() if response else None
         except Exception as e:
@@ -126,7 +126,7 @@ class OllamaMasterAgent:
                 prompt=prompt,
                 model=self.model_name,
                 system=system_instruction,
-                options={"temperature": 0.2},
+                options={"temperature": 0.2, "num_ctx": 8192},
             )
             return response.strip() if response else None
         except Exception as e:
