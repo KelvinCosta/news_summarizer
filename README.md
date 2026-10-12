@@ -108,36 +108,25 @@ pip install -r requirements.txt
 
 ### Como Rodar
 
-#### 1. Demonstração do Pipeline e Event Sourcing
+#### 1. Iniciar o Sistema (Menu Principal Unificado)
 ```bash
 python main.py
 ```
-Para interagir no terminal em modo chat:
-```bash
-python main.py --chat
-```
+O terminal apresentará um menu interativo completo:
+- **[1]** Ingestão de Notícias & Funil O(1) (RSS -> SimHash -> Naive Bayes)
+- **[2]** Executar Pipeline Map-Reduce (Resumos SLM + Vetorização + Boletim)
+- **[3]** Visualizar Mega-Boletins por Data (Visão Executiva)
+- **[4]** Visualizar Boletins Parciais (Sessões Individuais)
+- **[5]** Conversar com o Oráculo RAG (Modo Estrito Anti-Alucinação)
+- **[6]** Trilha de Auditoria (Event Sourcing da Sessão)
+- **[0]** Sair
 
-#### 2. Funil de Ingestão e Triagem O(1)
-```bash
-python test_ingestion.py
-```
-
-#### 3. Pipeline Map-Reduce e Vetorização
-```bash
-python test_summarizer.py
-```
-
-#### 4. Menu CLI de Leitura de Boletins e Oráculo RAG
-```bash
-python view_bulletins.py
-```
-
-#### 5. Executar a Suíte de Testes Unitários
+#### 2. Executar a Suíte de Testes Unitários
 ```bash
 pytest -v
 ```
 
-#### 6. Executar Bateria de Medição e Benchmark
+#### 3. Executar Bateria de Medição e Benchmark
 ```bash
 python tests/medir_pipeline.py --reps 1
 ```
