@@ -110,20 +110,29 @@ class NewsSummarizerApp:
 
         print(f"\nDetectadas {total_pending} notícias inéditas pendentes no Parquet.")
         print("Deseja resumir quantas nesta rodada? (SLMs locais levam ~3-6s por artigo)")
-        print("  [Enter] Top 10 mais recentes (recomendado para resposta rápida)")
-        print("  [número] Digite uma quantidade personalizada (ex: 5, 20)")
-        print("  [todas]  Processar todas as notícias pendentes")
+        print("  [Enter] Top 10 mais relevantes para IA/Tech (Recomendado: ~40s de inferência)")
+        print("  [número] Digite uma quantidade personalizada (ex: 5, 20, 50)")
+        print(f"  [todas]  Processar todas as {total_pending} notícias pendentes")
 
         choice = input("\nEscolha: ").strip().lower()
         limit: Optional[int] = 10
         if choice in ["todas", "all", "t"]:
+            if total_pending > 50:
+                est_min = int((total_pending * 5) / 60)
+                confirm = input(
+                    f"\n⚠️  Atenção: Processar {total_pending} notícias levará ~{est_min} minutos ininterruptos "
+                    f"de GPU/VRAM.\nDeseja mesmo processar todas agora? (s/N): "
+                ).strip().lower()
+                if confirm not in ["s", "sim", "y", "yes"]:
+                    print("Operação cancelada para segurança da GPU. Experimente um lote de 15 ou 25 artigos.")
+                    return
             limit = None
         elif choice.isdigit() and int(choice) > 0:
             limit = int(choice)
         elif choice == "":
             limit = 10
 
-        batch_desc = f"{limit} artigos" if limit else f"todos os {total_pending} artigos"
+        batch_desc = f"{limit} artigos prioritários" if limit else f"todos os {total_pending} artigos"
         print(f"\n🚀 Iniciando síntese Map-Reduce de {batch_desc}...")
 
         def on_summary_progress(current: int, total: int, title: str) -> None:

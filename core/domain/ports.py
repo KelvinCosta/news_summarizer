@@ -17,6 +17,9 @@ class ISemanticMemory(Protocol):
     def store_individual_summary(self, summary: SummarizedArticle) -> None:
         ...
 
+    def store_individual_summaries_batch(self, summaries: List[SummarizedArticle]) -> None:
+        ...
+
     def recall_context(self, query: str, limit: int = 3) -> List[Dict[str, Any]]:
         ...
 

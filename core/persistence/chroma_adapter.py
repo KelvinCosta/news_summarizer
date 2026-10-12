@@ -88,6 +88,31 @@ class ChromaDBAdapter(ISemanticMemory):
             ids=[doc_id]
         )
 
+    def store_individual_summaries_batch(self, summaries: List[SummarizedArticle]) -> None:
+        """Armazena múltiplos resumos em lote, gerando embeddings e gravando em operação única."""
+        if not summaries:
+            return
+        import hashlib
+        docs = []
+        metadatas = []
+        ids = []
+        for s in summaries:
+            url_hash = hashlib.md5(s.original_url.encode()).hexdigest()
+            ids.append(f"summary_{url_hash}")
+            docs.append(s.summary)
+            metadatas.append({
+                "type": "individual_summary",
+                "source_url": s.original_url,
+                "title": s.title,
+                "processed_at": s.processed_at.isoformat(),
+            })
+
+        self.collection.upsert(
+            documents=docs,
+            metadatas=metadatas,
+            ids=ids,
+        )
+
     def recall_context(self, query: str, limit: int = 3) -> List[Dict[str, Any]]:
         results = self.collection.query(
             query_texts=[query],

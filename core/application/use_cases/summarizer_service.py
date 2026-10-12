@@ -8,6 +8,7 @@ Fase 2 (REDUCE): Sintetiza o Boletim Diário Global a partir dos resumos
 
 from datetime import datetime, timezone
 import logging
+import time
 from typing import Callable, List, Optional
 
 from core.domain.article import GlobalBulletin, SummarizedArticle
@@ -106,13 +107,19 @@ class SummarizerService:
                 )
                 summarized_objects.append(summarized_obj)
 
-                # Injeção no Hipocampo (ChromaDB)
-                if self.semantic_memory:
-                    self.semantic_memory.store_individual_summary(summarized_obj)
+                # CHECKPOINT IMEDIATO: Salva cada resumo no Parquet assim que concluído.
+                # Se o usuário cancelar ou houver interrupção, o progresso nunca é perdido.
+                try:
+                    self.parquet_store.append_summaries([summarized_obj])
+                except Exception as e:
+                    logger.warning(f"Erro ao salvar checkpoint incremental no Parquet: {e}")
 
-                logger.info(f"[{SystemState.COMPLETED.value}] Resumo gerado e vetorizado: '{title}'")
+                logger.info(f"[{SystemState.COMPLETED.value}] Resumo gerado e gravado no Parquet: '{title}'")
             else:
                 logger.error(f"[{SystemState.FAILED.value}] Falha na inferência para '{title}'")
+
+            # Arrefecimento breve (100ms) para liberar I/O e evitar congelamento de GPU/TDR no Windows
+            time.sleep(0.1)
 
         if not summarized_objects:
             return {
@@ -122,14 +129,19 @@ class SummarizerService:
                 "message": "Nenhum resumo pôde ser gerado pelos agentes.",
             }
 
-        # Salvando resumos no Parquet
-        logger.info(
-            f"[{SystemState.CONSOLIDATING.value}] Gravando {len(summarized_objects)} resumos em summaries.parquet..."
-        )
-        self.parquet_store.append_summaries(summarized_objects)
+        # FASE 2: INDEXAÇÃO NO HIPOCAMPO (ChromaDB)
+        # Executada após a finalização de todos os resumos para evitar "ping-pong" de modelos na GPU
+        logger.info("--- FASE 2: INDEXAÇÃO NO HIPOCAMPO (ChromaDB) ---")
+        if self.semantic_memory:
+            try:
+                for obj in summarized_objects:
+                    self.semantic_memory.store_individual_summary(obj)
+                logger.info(f"Vetorizados {len(summarized_objects)} resumos no Hipocampo com sucesso.")
+            except Exception as e:
+                logger.warning(f"Aviso ao indexar resumos no ChromaDB: {e}")
 
-        # FASE 2: REDUCE (Boletim Global)
-        logger.info("--- FASE 2: REDUCE (Boletim Global) ---")
+        # FASE 3: REDUCE (Boletim Global)
+        logger.info("--- FASE 3: REDUCE (Boletim Global com Agente Master) ---")
         summary_texts = [s.summary for s in summarized_objects]
         global_bulletin = self.master_agent.generate_global_bulletin(summary_texts)
 
