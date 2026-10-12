@@ -36,47 +36,47 @@ O sistema rejeita bibliotecas "caixa-preta" e implementa um fluxo desacoplado em
 
 ```mermaid
 flowchart TD
-    User([Usuário / Pergunta]) --> FSM[FSMOrchestrator\nMáquina de Estados Finita]
+    User(["Usuário / Pergunta"]) --> FSM["FSMOrchestrator<br>Máquina de Estados Finita"]
     
     subgraph Estágio 1 - Roteamento & Gatekeeper
-        FSM --> FastPath{Fast-Path Heurístico?\n(Data / Catálogo Recência)}
-        FastPath -->|Sim (0ms / 0 GPU)| FastResp[Resposta Instantânea Direta]
-        FastPath -->|Não| Gatekeeper[GatekeeperService\nClassificação de Intenção]
-        Gatekeeper --> OllamaGK[SLM Local: llama3.2]
+        FSM --> FastPath{"Fast-Path Heurístico?<br>(Data / Catálogo Recência)"}
+        FastPath -->|"Sim (0ms / 0 GPU)"| FastResp["Resposta Instantânea Direta"]
+        FastPath -->|Não| Gatekeeper["GatekeeperService<br>Classificação de Intenção"]
+        Gatekeeper --> OllamaGK["SLM Local: llama3.2"]
     end
 
-    Gatekeeper --> IntentDecision{Intenção Classificada}
+    Gatekeeper --> IntentDecision{"Intenção Classificada"}
 
-    IntentDecision -->|OUT_OF_DOMAIN| OOD[Recusa de Escopo Institucional]
-    IntentDecision -->|HUMAN_INTERVENTION| HITL[Transbordo Seguro / Fail-Fast]
+    IntentDecision -->|OUT_OF_DOMAIN| OOD["Recusa de Escopo Institucional"]
+    IntentDecision -->|HUMAN_INTERVENTION| HITL["Transbordo Seguro / Fail-Fast"]
     
     subgraph Estágio 2 - Extração Estruturada
-        IntentDecision -->|FACTUAL_QUERY / TRENDS| Extractor[QueryExtractorService\nNewsFilterSchema Pydantic v2]
+        IntentDecision -->|"FACTUAL_QUERY / TRENDS"| Extractor["QueryExtractorService<br>NewsFilterSchema Pydantic v2"]
     end
 
     subgraph Estágio 3 - Recuperação Híbrida Bilíngue
-        Extractor --> HybridRetriever[HybridRetrieverService]
-        HybridRetriever --> MapBilingual[Expansão de Entidades PT ⇄ EN\n(ex: Casa Branca ⇄ White House)]
-        MapBilingual --> ParquetSearch[Parquet Data Lake\nBusca Léxica Exata]
-        MapBilingual --> ChromaSearch[ChromaDB - nomic-embed-text\nBusca Semântica Vetorial]
+        Extractor --> HybridRetriever["HybridRetrieverService"]
+        HybridRetriever --> MapBilingual["Expansão de Entidades PT ⇄ EN<br>(ex: Casa Branca ⇄ White House)"]
+        MapBilingual --> ParquetSearch["Parquet Data Lake<br>Busca Léxica Exata"]
+        MapBilingual --> ChromaSearch["ChromaDB - nomic-embed-text<br>Busca Semântica Vetorial"]
     end
 
     subgraph Estágio 4 - Síntese Aterrada & Guardrails
-        ParquetSearch --> Fusion[Fusão, Deduplicação & Reranking]
+        ParquetSearch --> Fusion["Fusão, Deduplicação & Reranking"]
         ChromaSearch --> Fusion
-        Fusion --> Oracle[GroundedOracleService\nSLM llama3.2]
-        Oracle --> Guardrails{Guardrails Anti-Alucinação}
-        Guardrails -->|Sem dados na base| Refusal[Recusa Segura Padronizada]
-        Guardrails -->|Fatos presentes| GroundedAns[Síntese Factual Ancorada]
+        Fusion --> Oracle["GroundedOracleService<br>SLM llama3.2"]
+        Oracle --> Guardrails{"Guardrails Anti-Alucinação"}
+        Guardrails -->|Sem dados na base| Refusal["Recusa Segura Padronizada"]
+        Guardrails -->|Fatos presentes| GroundedAns["Síntese Factual Ancorada"]
     end
 
-    FastResp --> EventStore[(ImmutableEventStore\nEvent Sourcing Imutável)]
+    FastResp --> EventStore[("ImmutableEventStore<br>Event Sourcing Imutável")]
     OOD --> EventStore
     HITL --> EventStore
     Refusal --> EventStore
     GroundedAns --> EventStore
 
-    EventStore --> Result([Resposta ao Usuário + Auditoria de Origens])
+    EventStore --> Result(["Resposta ao Usuário + Auditoria de Origens"])
 ```
 
 ### Detalhamento dos Estágios
@@ -103,16 +103,16 @@ flowchart TD
 
 ```mermaid
 flowchart LR
-    Feeds[Feeds RSS Concorrentes] --> SimHash[Filtro 1: SimHash\nDeduplicação O(1)]
-    SimHash --> Bayes[Filtro 2: Naive Bayes\nTriagem de Relevância]
-    Bayes --> ParquetArticles[(articles.parquet\nData Lake Bruto)]
+    Feeds["Feeds RSS Concorrentes"] --> SimHash["Filtro 1: SimHash<br>Deduplicação O(1)"]
+    SimHash --> Bayes["Filtro 2: Naive Bayes<br>Triagem de Relevância"]
+    Bayes --> ParquetArticles[("articles.parquet<br>Data Lake Bruto")]
     
     subgraph Map-Reduce SLM
-        ParquetArticles --> SLM_Map[SLM Map\nResumos Individuais]
-        SLM_Map --> ParquetSummaries[(summaries.parquet)]
-        SLM_Map --> Chroma[(ChromaDB Index)]
-        ParquetSummaries --> SLM_Reduce[SLM Reduce\nBoletins Consolidados]
-        SLM_Reduce --> ParquetBulletins[(bulletins.parquet\nCache por Hash)]
+        ParquetArticles --> SLM_Map["SLM Map<br>Resumos Individuais"]
+        SLM_Map --> ParquetSummaries[("summaries.parquet")]
+        SLM_Map --> Chroma[("ChromaDB Index")]
+        ParquetSummaries --> SLM_Reduce["SLM Reduce<br>Boletins Consolidados"]
+        SLM_Reduce --> ParquetBulletins[("bulletins.parquet<br>Cache por Hash")]
     end
 ```
 
