@@ -71,8 +71,16 @@ logs/
 chroma_data/
 data/parquet/*.parquet
 
-# Ignorar toda a pasta de dados locais e caches gerados
+# Ignorar toda a pasta de dados locais, logs e caches gerados
 data/
+logs/
+
+# Arquivos locais de configuração do usuário (não subir URLs nem preferências privadas)
+feeds.json
 vocabulary_seed.json
-data/
-vocabulary_seed.json
+vocabulary_seeds.json
+
+# Garantir que os templates de exemplo sejam versionados
+!feeds.example.json
+!vocabulary_seed.example.json
+

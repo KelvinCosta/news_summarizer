@@ -4,7 +4,7 @@
 ![Python](https://img.shields.io/badge/python-3.12%2B-blue.svg)
 ![Ollama](https://img.shields.io/badge/ollama-local-orange.svg)
 ![Clean Architecture](https://img.shields.io/badge/architecture-clean-green.svg)
-![Tests](https://img.shields.io/badge/tests-33%20passed-brightgreen.svg)
+![Tests](https://img.shields.io/badge/tests-39%20passed-brightgreen.svg)
 
 News Summarizer é um sistema autônomo de inteligência de notícias baseado em *Small Language Models* (SLMs) projetado para rodar 100% On-Premise (local) em hardwares de consumo (ex: RTX 3060 12GB). 
 
@@ -105,6 +105,29 @@ python -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
 ```
+
+### Configurações de Feeds e Preferências
+
+O projeto utiliza modelos de exemplo para manter as configurações pessoais fora do versionamento:
+
+1. **Feeds RSS (`feeds.json`):**
+   - Copie o arquivo modelo:
+     ```bash
+     cp feeds.example.json feeds.json
+     ```
+   - Adicione suas URLs de feeds RSS no formato de array JSON:
+     ```json
+     [
+       "https://rss.cnn.com/rss/edition_technology.rss",
+       "https://feeds.bbci.co.uk/news/technology/rss.xml"
+     ]
+     ```
+
+2. **Filtro Bayesiano (`vocabulary_seed.json`):**
+   - Personalize os pesos positivos e negativos para triagem matemática *Cold Start*:
+     ```bash
+     cp vocabulary_seed.example.json vocabulary_seed.json
+     ```
 
 ### Como Rodar
 

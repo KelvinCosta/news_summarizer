@@ -18,6 +18,8 @@ from core.filters.lexical import LexicalFilter
 from core.fsm.states import SystemState
 from core.ingestion.rss_parser import RSSParser
 from core.persistence.parquet_store import ParquetStore
+from pathlib import Path
+import json
 
 logger = logging.getLogger(__name__)
 
@@ -25,6 +27,33 @@ DEFAULT_FEEDS = [
     "http://rss.cnn.com/rss/edition_technology.rss",
     "http://feeds.bbci.co.uk/news/technology/rss.xml",
 ]
+
+
+def load_configured_feeds(feeds_path: str = "feeds.json") -> List[str]:
+    """Carrega as URLs de feeds RSS a partir de feeds.json ou feeds.example.json."""
+    path = Path(feeds_path)
+    if not path.exists():
+        example_path = Path("feeds.example.json")
+        if example_path.exists():
+            path = example_path
+        else:
+            return DEFAULT_FEEDS
+
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        if isinstance(data, list):
+            valid = [url.strip() for url in data if isinstance(url, str) and url.strip()]
+            if valid:
+                return valid
+        elif isinstance(data, dict):
+            feeds_list = data.get("feeds", [])
+            valid = [url.strip() for url in feeds_list if isinstance(url, str) and url.strip()]
+            if valid:
+                return valid
+    except Exception as e:
+        logger.warning(f"Erro ao ler feeds em {path}: {e}. Utilizando feeds padrão.")
+
+    return DEFAULT_FEEDS
 
 
 class IngestionService:
@@ -42,7 +71,7 @@ class IngestionService:
         self.lexical_filter = lexical_filter or LexicalFilter(tolerance=3)
         self.bayesian_filter = bayesian_filter or BayesianFilter("vocabulary_seed.json")
         self.event_store = event_store or ImmutableEventStore()
-        self.feeds = feeds or DEFAULT_FEEDS
+        self.feeds = feeds or load_configured_feeds()
 
     def run(self, custom_articles: Optional[List[Article]] = None) -> dict:
         """Executa o ciclo completo de ingestão e filtragem.

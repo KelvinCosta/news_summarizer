@@ -11,12 +11,17 @@ class BayesianFilter:
 
     def load_seed(self):
         if not self.seed_file.exists():
-            default_seed = {
-                "positive": {"rust": 2.0, "go": 2.0, "arquitetura": 2.0, "startups": 1.5, "tecnologia": 1.5, "ai": 2.0},
-                "negative": {"fofoca": -2.0, "celebridade": -2.0, "horóscopo": -2.0, "astrologia": -2.0, "crime": -1.5}
-            }
-            with open(self.seed_file, 'w') as f:
-                json.dump(default_seed, f, indent=4)
+            example_file = Path("vocabulary_seed.example.json")
+            if example_file.exists():
+                import shutil
+                shutil.copy(example_file, self.seed_file)
+            else:
+                default_seed = {
+                    "positive": {"rust": 2.0, "go": 2.0, "arquitetura": 2.0, "startups": 1.5, "tecnologia": 1.5, "ai": 2.0},
+                    "negative": {"fofoca": -2.0, "celebridade": -2.0, "horóscopo": -2.0, "astrologia": -2.0, "crime": -1.5}
+                }
+                with open(self.seed_file, 'w') as f:
+                    json.dump(default_seed, f, indent=4)
 
         with open(self.seed_file, 'r') as f:
             data = json.load(f)
