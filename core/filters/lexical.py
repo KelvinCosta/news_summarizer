@@ -11,9 +11,8 @@ class LexicalFilter:
         return Simhash(text).value
 
     def is_duplicate(self, new_hash: int, existing_hashes: List[int]) -> bool:
+        tol = self.tolerance
         for h in existing_hashes:
-            x = new_hash ^ h
-            dist = bin(x).count('1')
-            if dist <= self.tolerance:
+            if (new_hash ^ h).bit_count() <= tol:
                 return True
         return False

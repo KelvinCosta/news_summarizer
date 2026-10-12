@@ -1,93 +1,134 @@
-import ollama
-from typing import Optional, List
+"""Agentes SLM Locais para Map-Reduce (Clean Architecture).
+
+Conectam-se ao Ollama via OllamaClient HTTP puro desacoplado,
+permitindo injeção de dependência e testes unitários determinísticos.
+"""
+
+import re
+from typing import List, Optional
+
+from core.infrastructure.adapters.ollama_client import OllamaClient
+
 
 class OllamaSummarizerAgent:
-    """
-    Agente SLM especializado em sumarização INDIVIDUAL.
-    Conecta-se ao Ollama local para inferência restrita.
-    """
-    def __init__(self, model_name: str = "llama3.2"):
+    """Agente SLM especializado em sumarização INDIVIDUAL (Etapa MAP)."""
+
+    def __init__(
+        self,
+        model_name: str = "llama3.2",
+        client: Optional[OllamaClient] = None,
+    ) -> None:
         self.model_name = model_name
+        self._client = client or OllamaClient()
 
     def summarize(self, text: str) -> Optional[str]:
+        # Sanitização e truncamento seguro para SLMs leves (evita estourar contexto e timeout em newsletters gigantes)
+        clean_text = re.sub(r"<[^>]+>", " ", text)
+        clean_text = re.sub(r"\s+", " ", clean_text).strip()
+        if len(clean_text) > 4000:
+            clean_text = clean_text[:4000] + "..."
+
         prompt = (
-            "Resuma a seguinte notícia em no máximo 3 parágrafos, extraindo os pontos principais. "
-            "Responda em Português do Brasil.\n\n"
-            f"Notícia:\n{text}"
+            "Extraia os fatos desta notícia em até 3 parágrafos objetivos no padrão jornalístico brasileiro.\n\n"
+            "DIRETRIZES DE EXTRAÇÃO:\n"
+            "1. Identifique claramente os sujeitos, as empresas ou entidades citadas e as ações que realizaram.\n"
+            "2. Se a notícia relatar um crime, golpe ou fraude cometida por terceiros, deixe claro quem é o autor e quem é a vítima/empresa afetada.\n"
+            "3. Se for uma newsletter com vários temas curtos, resuma apenas as notícias principais sobre tecnologia e IA.\n"
+            "4. Responda em Português do Brasil de forma direta, sem introduções vazias como 'Aqui está o resumo'.\n\n"
+            f"TEXTO DA NOTÍCIA:\n{clean_text}"
+        )
+        system_instruction = (
+            "Você é um extrator de inteligência jornalística de alta precisão. "
+            "Sua função é transformar artigos brutos em fatos claros e objetivos com atribuição correta."
         )
         try:
-            response = ollama.chat(model=self.model_name, messages=[
-                {
-                    "role": "system", 
-                    "content": "Você é um assistente hiper-especializado em sumarizar dados e remover ruídos, seguindo princípios on-premise estritos. Produza resumos curtos e diretos."
-                },
-                {
-                    "role": "user", 
-                    "content": prompt
-                }
-            ])
-            return response['message']['content']
+            response = self._client.generate(
+                prompt=prompt,
+                model=self.model_name,
+                system=system_instruction,
+                options={"temperature": 0.2},
+            )
+            return response.strip() if response else None
         except Exception as e:
             print(f"Erro no Agente de Sumarização ({self.model_name}): {e}")
             return None
 
 
 class OllamaMasterAgent:
+    """Agente SLM Master (Map-Reduce).
+
+    Lê os resumos individuais e cria um boletim global consolidado com
+    análise de tendências e um radar ativo de veracidade/desinformação (Etapa REDUCE).
     """
-    Agente SLM Master (Map-Reduce).
-    Lê os resumos individuais e cria um boletim global consolidado.
-    """
-    def __init__(self, model_name: str = "llama3.2"):
+
+    def __init__(
+        self,
+        model_name: str = "llama3.2",
+        client: Optional[OllamaClient] = None,
+    ) -> None:
         self.model_name = model_name
+        self._client = client or OllamaClient()
 
     def generate_global_bulletin(self, summaries: List[str]) -> Optional[str]:
         context = "\n\n---\n\n".join(summaries)
         prompt = (
-            "Abaixo estão vários resumos individuais de notícias recentes.\n"
-            "Escreva um único Boletim Diário conectando essas informações de forma coesa "
-            "e estruturada. Use formatação Markdown, crie um título atrativo, destaque as principais "
-            "tendências em tópicos (bullet points) e finalize com um parágrafo rápido de conclusão.\n\n"
-            f"RESUMOS:\n{context}"
+            "Com base estritamente nos resumos jornalísticos abaixo, componha o Boletim Diário de Inteligência Tecnológica.\n\n"
+            "REGRAS DE CONDICIONAMENTO:\n"
+            "1. ANCORAGEM NO CONTEXTO: Todos os dados abaixo são notícias reais e recentes apuradas pela imprensa. Nunca classifique as notícias como falsas nem as refute com base em conhecimentos prévios.\n"
+            "2. ATRIBUIÇÃO JORNALÍSTICA: Sempre que citar declarações ou propostas mencione como uma declaração pública reportada pelos veículos de imprensa.\n"
+            "3. COBERTURA MULTIDISCIPLINAR: Agrupe os acontecimentos cobrindo as diferentes frentes reportadas no lote: Políticas/Governança, Empresas & Modelos de IA, e Infraestrutura/Hardware.\n"
+            "4. ESTRUTURA DO BOLETIM (Siga rigidamente este padrão Markdown):\n\n"
+            "# 📰 BOLETIM DIÁRIO: INTELIGÊNCIA TECNOLÓGICA & MERCADO\n\n"
+            "## 🚀 Destaques Principais & Tendências\n"
+            "(Apresente as principais notícias em tópicos com negrito no título e explicação concisa do fato, abrangendo todas as frentes reportadas no lote)\n\n"
+            "## ⚠️ Radar Crítico & Riscos Reportados\n"
+            "(Aponte aqui fraudes, golpes com IA, ataques físicos/cibernéticos, declarações controversas ou desafios regulatórios relatados nas notícias. Se não houver relatos de risco, escreva: 'Nenhum risco ou fraude tecnológica reportada neste lote.')\n\n"
+            "## 💡 Conclusão Executiva\n"
+            "(Parágrafo final de 3 a 4 linhas sintetizando o impacto dos acontecimentos no mercado.)\n\n"
+            f"RESUMOS DAS FONTES:\n{context}"
+        )
+        system_instruction = (
+            "Você é o Editor-Chefe de Inteligência Executiva de Tecnologia. "
+            "Você redige boletins analíticos e concisos em Português corporativo, baseando-se estritamente no material fornecido, "
+            "com postura séria, imparcial e sem emitir opiniões pessoais de debunker."
         )
         try:
-            response = ollama.chat(model=self.model_name, messages=[
-                {
-                    "role": "system", 
-                    "content": "Você é o Orquestrador Chefe de Notícias (Agente Master), especializado em redigir relatórios executivos (Briefings) em Português a partir de múltiplos resumos."
-                },
-                {
-                    "role": "user", 
-                    "content": prompt
-                }
-            ])
-            return response['message']['content']
+            response = self._client.generate(
+                prompt=prompt,
+                model=self.model_name,
+                system=system_instruction,
+                options={"temperature": 0.2, "num_ctx": 8192},
+            )
+            return response.strip() if response else None
         except Exception as e:
             print(f"Erro no Agente Master ({self.model_name}): {e}")
             return None
 
-    def generate_daily_master(self, bulletins_content: List[str], date_str: str) -> Optional[str]:
+    def generate_daily_master(
+        self, bulletins_content: List[str], date_str: str
+    ) -> Optional[str]:
         """Lê os vários boletins de um dia e funde num Mega-Boletim Final."""
         context = "\n\n=== BOLETIM PARCIAL ===\n\n".join(bulletins_content)
         prompt = (
-            f"Abaixo estão os relatórios parciais gerados durante o dia {date_str}.\n"
-            "Escreva o **Sumário Geral Definitivo do Dia**. Conecte as notícias de forma inteligente, "
-            "elimine qualquer informação repetida entre os relatórios parciais, destaque as notícias mais importantes, "
-            "e crie uma conclusão fechando as tendências de tecnologia do dia.\n"
-            "Use Markdown e estruture bem o texto para leitura executiva.\n\n"
-            f"RELATÓRIOS PARCIAIS:\n{context}"
+            f"Consolide os relatórios parciais do dia {date_str} em um único Mega-Boletim Executivo Definitivo.\n\n"
+            "REGRAS:\n"
+            "1. Elimine redundâncias entre as sessões parciais, mas assegure a cobertura de todos os eixos temáticos do dia (Políticas & Governança, Empresas & Modelos, Infraestrutura & Riscos).\n"
+            "2. Mantenha as seções: Destaques Principais, Radar Crítico & Riscos Reportados, e Conclusão Executiva.\n"
+            "3. Redija em Português profissional estruturado em Markdown, sem refutar notícias apuradas pelas fontes.\n\n"
+            f"RELATÓRIOS DO DIA:\n{context}"
+        )
+        system_instruction = (
+            "Você é o Editor-Chefe Definitivo de Inteligência de Mercado. Sua função é fundir múltiplos relatórios diários "
+            "em um sumário executivo conciso, de leitura rápida e alto valor analítico."
         )
         try:
-            response = ollama.chat(model=self.model_name, messages=[
-                {
-                    "role": "system", 
-                    "content": "Você é o Orquestrador Chefe de Notícias (Agente Master Definitivo). Sua função é consolidar múltiplos boletins diários em um único mega-relatório executivo em Português."
-                },
-                {
-                    "role": "user", 
-                    "content": prompt
-                }
-            ])
-            return response['message']['content']
+            response = self._client.generate(
+                prompt=prompt,
+                model=self.model_name,
+                system=system_instruction,
+                options={"temperature": 0.2, "num_ctx": 8192},
+            )
+            return response.strip() if response else None
         except Exception as e:
             print(f"Erro no Agente Master (Daily Summarizer) ({self.model_name}): {e}")
             return None

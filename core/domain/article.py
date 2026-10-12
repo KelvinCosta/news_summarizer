@@ -25,6 +25,8 @@ class GlobalBulletin:
     """Entidade que representa o boletim consolidado de uma sessão (Agente Master)."""
     content: str
     processed_at: datetime
+    topic: Optional[str] = "top_10"
+    articles_hash: Optional[str] = ""
 
 @dataclass(frozen=True)
 class DailySummary:

@@ -79,24 +79,63 @@ class ParquetStore:
         if not bulletin:
             return
             
+        topic = getattr(bulletin, "topic", None) or "top_10"
+        articles_hash = getattr(bulletin, "articles_hash", None) or ""
+
         data = [{
             "content": bulletin.content,
-            "processed_at": bulletin.processed_at
+            "processed_at": bulletin.processed_at,
+            "topic": topic,
+            "articles_hash": articles_hash,
         }]
         
         schema = {
             "content": pl.Utf8,
-            "processed_at": pl.Datetime
+            "processed_at": pl.Datetime,
+            "topic": pl.Utf8,
+            "articles_hash": pl.Utf8,
         }
         
         df_new = pl.DataFrame(data, schema=schema)
         
         if self.bulletins_path.exists():
             df_existing = pl.read_parquet(self.bulletins_path)
+            if "topic" not in df_existing.columns:
+                df_existing = df_existing.with_columns(
+                    pl.lit("geral").cast(pl.Utf8).alias("topic")
+                )
+            if "articles_hash" not in df_existing.columns:
+                df_existing = df_existing.with_columns(
+                    pl.lit("").cast(pl.Utf8).alias("articles_hash")
+                )
             df_combined = pl.concat([df_existing, df_new])
             df_combined.write_parquet(self.bulletins_path)
         else:
             df_new.write_parquet(self.bulletins_path)
+
+    def find_bulletin_by_hash(self, articles_hash: str):
+        """Busca se já existe um boletim gerado com exatamente o mesmo hash de artigos."""
+        if not articles_hash or not self.bulletins_path.exists():
+            return None
+        df = pl.read_parquet(self.bulletins_path)
+        if "articles_hash" not in df.columns or df.height == 0:
+            return None
+        matches = df.filter(pl.col("articles_hash") == articles_hash)
+        if matches.height == 0:
+            return None
+        return matches.sort("processed_at", descending=True).head(1).to_dicts()[0]
+
+    def find_bulletin_by_topic(self, topic: str):
+        """Busca o boletim mais recente para um determinado tópico/tema."""
+        if not topic or not self.bulletins_path.exists():
+            return None
+        df = pl.read_parquet(self.bulletins_path)
+        if "topic" not in df.columns or df.height == 0:
+            return None
+        matches = df.filter(pl.col("topic") == topic)
+        if matches.height == 0:
+            return None
+        return matches.sort("processed_at", descending=True).head(1).to_dicts()[0]
 
     def get_all_simhashes(self) -> List[int]:
         if not self.file_path.exists():
@@ -123,6 +162,26 @@ class ParquetStore:
         
         df_sorted = df.sort("processed_at", descending=True)
         return df_sorted.head(limit).to_dicts()
+
+    def get_oldest_summaries(self, limit: int = 5) -> List[dict]:
+        """Recupera os resumos mais antigos arquivados, ordenados de forma ascendente."""
+        if not self.summaries_path.exists():
+            return []
+        df = pl.read_parquet(self.summaries_path)
+        if df.height == 0:
+            return []
+        
+        df_sorted = df.sort("processed_at", descending=False)
+        return df_sorted.head(limit).to_dicts()
+
+    def get_all_summaries(self) -> List[dict]:
+        """Recupera todos os resumos processados ordenados por data decrescente."""
+        if not self.summaries_path.exists():
+            return []
+        df = pl.read_parquet(self.summaries_path)
+        if df.height == 0:
+            return []
+        return df.sort("processed_at", descending=True).to_dicts()
 
     def get_unsummarized_articles(self) -> List[dict]:
         """Retorna todos os artigos brutos que ainda não possuem um resumo associado."""
@@ -235,3 +294,34 @@ class ParquetStore:
         df_filtered = df.filter(pl.col("date_str") == target_date)
         
         return df_filtered.sort("processed_at", descending=False).to_dicts()
+
+    def search_summaries_by_keyword(self, keyword: str, limit: int = 10) -> List[dict]:
+        """Busca sumários que contenham o termo de busca no título ou no resumo (case-insensitive)."""
+        if not self.summaries_path.exists() or not keyword or not keyword.strip():
+            return []
+        df = pl.read_parquet(self.summaries_path)
+        if df.height == 0:
+            return []
+        kw = keyword.strip().lower()
+        filtered = df.filter(
+            pl.col("title").str.to_lowercase().str.contains(kw, literal=True)
+            | pl.col("summary").str.to_lowercase().str.contains(kw, literal=True)
+        )
+        if filtered.height == 0:
+            return []
+        return filtered.sort("processed_at", descending=True).head(limit).to_dicts()
+
+    def search_bulletins_by_keyword(self, keyword: str, limit: int = 5) -> List[dict]:
+        """Busca boletins que contenham a palavra-chave no conteúdo (case-insensitive)."""
+        if not self.bulletins_path.exists() or not keyword or not keyword.strip():
+            return []
+        df = pl.read_parquet(self.bulletins_path)
+        if df.height == 0:
+            return []
+        kw = keyword.strip().lower()
+        filtered = df.filter(
+            pl.col("content").str.to_lowercase().str.contains(kw, literal=True)
+        )
+        if filtered.height == 0:
+            return []
+        return filtered.sort("processed_at", descending=True).head(limit).to_dicts()
