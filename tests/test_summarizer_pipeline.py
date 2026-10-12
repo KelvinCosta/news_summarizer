@@ -179,6 +179,76 @@ class TestSummarizerPipeline:
         assert result["status"] == "empty"
         assert result["bulletin"] is None
 
+    def test_generate_strategic_bulletin_intelligent_caching(self, mock_env):
+        service, store, memory, summarizer_agent, master_agent = mock_env
+
+        store.append([
+            Article(
+                url="https://tech.com/article1",
+                title="Novo processador quântico",
+                content="Conteúdo sobre processador.",
+                published_at=datetime.now(timezone.utc),
+                source="TechSource",
+            )
+        ])
+        summarizer_agent.summarize.return_value = "Resumo quântico."
+        service.run(generate_bulletin=False)
+
+        master_agent.generate_global_bulletin.return_value = "📰 Boletim Inicial."
+
+        # 1ª Execução: Gera via SLM
+        res1 = service.generate_strategic_bulletin(top_k=5)
+        assert res1["status"] == "success"
+        assert res1["cached"] is False
+        assert master_agent.generate_global_bulletin.call_count == 1
+
+        # 2ª Execução com os mesmos artigos: Retorna do Cache instantaneamente!
+        res2 = service.generate_strategic_bulletin(top_k=5)
+        assert res2["status"] == "cached"
+        assert res2["cached"] is True
+        assert res2["bulletin"] == "📰 Boletim Inicial."
+        # Garante que a SLM NÃO foi chamada novamente (zero GPU)
+        assert master_agent.generate_global_bulletin.call_count == 1
+
+    def test_generate_strategic_bulletin_by_theme(self, mock_env):
+        service, store, memory, summarizer_agent, master_agent = mock_env
+
+        store.append([
+            Article(
+                url="https://tech.com/quantum",
+                title="Avanços em Computação Quântica",
+                content="Hardware quântico.",
+                published_at=datetime.now(timezone.utc),
+                source="TechSource",
+            ),
+            Article(
+                url="https://tech.com/sports",
+                title="Notícia de Esportes",
+                content="Futebol e campeonato.",
+                published_at=datetime.now(timezone.utc),
+                source="SportsSource",
+            ),
+        ])
+        summarizer_agent.summarize.side_effect = lambda text: (
+            "Resumo de computação quântica e tecnologia."
+            if "Quântica" in text
+            else "Resumo de esportes e jogos."
+        )
+        service.run(generate_bulletin=False)
+
+        master_agent.generate_global_bulletin.return_value = "📰 Boletim Especial Quântica."
+
+        # Filtro por tema 'quântica'
+        res = service.generate_strategic_bulletin(theme="quântica")
+        assert res["status"] == "success"
+        assert res["count"] == 1
+        assert "quântica" in res["articles_used"][0]["title"].lower()
+
+        # Tema inexistente
+        res_empty = service.generate_strategic_bulletin(theme="inexistente_xyz")
+        assert res_empty["status"] == "empty"
+
+
 
 
 

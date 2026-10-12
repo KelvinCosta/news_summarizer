@@ -79,24 +79,63 @@ class ParquetStore:
         if not bulletin:
             return
             
+        topic = getattr(bulletin, "topic", None) or "top_10"
+        articles_hash = getattr(bulletin, "articles_hash", None) or ""
+
         data = [{
             "content": bulletin.content,
-            "processed_at": bulletin.processed_at
+            "processed_at": bulletin.processed_at,
+            "topic": topic,
+            "articles_hash": articles_hash,
         }]
         
         schema = {
             "content": pl.Utf8,
-            "processed_at": pl.Datetime
+            "processed_at": pl.Datetime,
+            "topic": pl.Utf8,
+            "articles_hash": pl.Utf8,
         }
         
         df_new = pl.DataFrame(data, schema=schema)
         
         if self.bulletins_path.exists():
             df_existing = pl.read_parquet(self.bulletins_path)
+            if "topic" not in df_existing.columns:
+                df_existing = df_existing.with_columns(
+                    pl.lit("geral").cast(pl.Utf8).alias("topic")
+                )
+            if "articles_hash" not in df_existing.columns:
+                df_existing = df_existing.with_columns(
+                    pl.lit("").cast(pl.Utf8).alias("articles_hash")
+                )
             df_combined = pl.concat([df_existing, df_new])
             df_combined.write_parquet(self.bulletins_path)
         else:
             df_new.write_parquet(self.bulletins_path)
+
+    def find_bulletin_by_hash(self, articles_hash: str):
+        """Busca se já existe um boletim gerado com exatamente o mesmo hash de artigos."""
+        if not articles_hash or not self.bulletins_path.exists():
+            return None
+        df = pl.read_parquet(self.bulletins_path)
+        if "articles_hash" not in df.columns or df.height == 0:
+            return None
+        matches = df.filter(pl.col("articles_hash") == articles_hash)
+        if matches.height == 0:
+            return None
+        return matches.sort("processed_at", descending=True).head(1).to_dicts()[0]
+
+    def find_bulletin_by_topic(self, topic: str):
+        """Busca o boletim mais recente para um determinado tópico/tema."""
+        if not topic or not self.bulletins_path.exists():
+            return None
+        df = pl.read_parquet(self.bulletins_path)
+        if "topic" not in df.columns or df.height == 0:
+            return None
+        matches = df.filter(pl.col("topic") == topic)
+        if matches.height == 0:
+            return None
+        return matches.sort("processed_at", descending=True).head(1).to_dicts()[0]
 
     def get_all_simhashes(self) -> List[int]:
         if not self.file_path.exists():

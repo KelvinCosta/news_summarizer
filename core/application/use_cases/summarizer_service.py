@@ -7,6 +7,7 @@ Fase 2 (REDUCE): Sintetiza o Boletim Diário Global a partir dos resumos
 """
 
 from datetime import datetime, timezone
+import hashlib
 import logging
 import time
 from typing import Callable, List, Optional
@@ -178,8 +179,19 @@ class SummarizerService:
             "summaries": summarized_objects,
         }
 
-    def generate_top_bulletin(self, top_k: int = 10) -> dict:
-        """Gera um Boletim Estratégico consolidando as 'top_k' notícias de maior peso analítico (Naive Bayes)."""
+    def generate_strategic_bulletin(
+        self,
+        top_k: Optional[int] = 10,
+        theme: Optional[str] = None,
+        force_regenerate: bool = False,
+    ) -> dict:
+        """Gera ou recupera do cache o Boletim Consolidado por quantidade (Top K) ou tema filtrado.
+
+        Args:
+            top_k: Quantidade de notícias de maior peso a selecionar (se theme for None).
+            theme: Palavra-chave/termo para filtrar notícias (utiliza TODAS as encontradas).
+            force_regenerate: Se True, ignora o cache e força nova inferência na GPU.
+        """
         summaries = self.parquet_store.get_all_summaries()
         if not summaries:
             return {
@@ -187,9 +199,10 @@ class SummarizerService:
                 "message": "Nenhum resumo encontrado no banco de dados. Execute a opção de indexação primeiro.",
                 "bulletin": None,
                 "articles_used": [],
+                "cached": False,
             }
 
-        # Deduplica por URL para evitar artigos duplicados no mesmo boletim
+        # Deduplica por URL para evitar artigos duplicados
         seen_urls = set()
         unique_summaries = []
         for s in summaries:
@@ -198,31 +211,102 @@ class SummarizerService:
                 seen_urls.add(url)
                 unique_summaries.append(s)
 
-        # Ranqueia pelo score Bayesiano (pondera título + texto do resumo)
-        if self.bayesian_filter:
-            unique_summaries.sort(
-                key=lambda s: self.bayesian_filter.score_article(f"{s.get('title', '')} {s.get('summary', '')}"),
-                reverse=True,
-            )
+        if theme:
+            term = theme.strip().lower()
+            topic = f"tema:{term}"
+            matching = [
+                s for s in unique_summaries
+                if term in s.get("title", "").lower() or term in s.get("summary", "").lower()
+            ]
+            if not matching:
+                return {
+                    "status": "empty",
+                    "message": f"Nenhuma notícia encontrada contendo o tema '{theme}'.",
+                    "bulletin": None,
+                    "articles_used": [],
+                    "cached": False,
+                }
+            if self.bayesian_filter:
+                matching.sort(
+                    key=lambda s: self.bayesian_filter.score_article(f"{s.get('title', '')} {s.get('summary', '')}"),
+                    reverse=True,
+                )
+            target_articles = matching
+        else:
+            k = top_k or 10
+            topic = f"top_{k}"
+            if self.bayesian_filter:
+                unique_summaries.sort(
+                    key=lambda s: self.bayesian_filter.score_article(f"{s.get('title', '')} {s.get('summary', '')}"),
+                    reverse=True,
+                )
+            target_articles = unique_summaries[:k]
 
-        top_articles = unique_summaries[:top_k]
-        summary_texts = [s["summary"] for s in top_articles]
+        # Calcula o hash determinístico baseado nas URLs das notícias selecionadas e no tópico
+        sorted_urls = sorted([a.get("original_url", "") for a in target_articles if a.get("original_url")])
+        articles_hash = hashlib.sha256(f"{topic}::".encode() + "||".join(sorted_urls).encode()).hexdigest()
 
-        logger.info(f"Gerando Boletim com as Top {len(top_articles)} notícias de maior peso...")
-        global_bulletin = self.master_agent.generate_global_bulletin(summary_texts)
+        # IDEMPOTÊNCIA / CACHE INTELIGENTE:
+        # Se já existe um boletim gerado com exatamente este lote de notícias, retorna o existente
+        if not force_regenerate:
+            cached = self.parquet_store.find_bulletin_by_hash(articles_hash)
+            if cached:
+                logger.info(f"Boletim existente em cache recuperado para '{topic}' (hash={articles_hash[:8]}).")
+                return {
+                    "status": "cached",
+                    "bulletin": cached["content"],
+                    "processed_at": cached["processed_at"],
+                    "topic": topic,
+                    "articles_used": target_articles,
+                    "count": len(target_articles),
+                    "cached": True,
+                }
+
+        # REDUÇÃO (MAP-REDUCE)
+        logger.info(f"Gerando novo Boletim para '{topic}' com {len(target_articles)} notícias...")
+        summary_texts = [s["summary"] for s in target_articles]
+
+        # Se for um lote muito grande (ex: tema com mais de 20 notícias), faz redução hierárquica
+        if len(summary_texts) > 20:
+            chunk_size = 15
+            partial_bulletins = []
+            for i in range(0, len(summary_texts), chunk_size):
+                chunk = summary_texts[i:i + chunk_size]
+                partial = self.master_agent.generate_global_bulletin(chunk)
+                if partial:
+                    partial_bulletins.append(partial)
+
+            if partial_bulletins:
+                global_bulletin = self.master_agent.generate_daily_master(
+                    partial_bulletins,
+                    date_str=datetime.now().strftime("%d/%m/%Y"),
+                )
+            else:
+                global_bulletin = None
+        else:
+            global_bulletin = self.master_agent.generate_global_bulletin(summary_texts)
 
         if global_bulletin:
             bulletin_obj = GlobalBulletin(
                 content=global_bulletin,
                 processed_at=datetime.now(timezone.utc),
+                topic=topic,
+                articles_hash=articles_hash,
             )
             self.parquet_store.append_bulletin(bulletin_obj)
-            logger.info("Boletim das Top notícias salvo em 'bulletins.parquet'.")
+            logger.info(f"Novo boletim '{topic}' gerado e salvo em 'bulletins.parquet'.")
 
         return {
             "status": "success" if global_bulletin else "failed",
             "bulletin": global_bulletin,
-            "articles_used": top_articles,
-            "count": len(top_articles),
+            "processed_at": datetime.now(timezone.utc),
+            "topic": topic,
+            "articles_used": target_articles,
+            "count": len(target_articles),
+            "cached": False,
         }
+
+    def generate_top_bulletin(self, top_k: int = 10) -> dict:
+        """Compatibilidade retroativa: chama generate_strategic_bulletin."""
+        return self.generate_strategic_bulletin(top_k=top_k)
 

@@ -64,7 +64,7 @@ class NewsSummarizerApp:
         print("\n=== MENU PRINCIPAL ===")
         print("[1] Ingestão de Notícias & Funil O(1) (RSS -> SimHash -> Naive Bayes)")
         print("[2] Processar & Indexar Notícias (SLM Map -> Parquet -> ChromaDB)")
-        print("[3] Gerar Boletim Estratégico (Top 10 Notícias de Maior Peso)")
+        print("[3] Gerar Boletim (Top 10 / Personalizado / Por Tema)")
         print("[4] Visualizar Histórico de Boletins Gerados")
         print("[5] Visualizar Sumários Individuais de Notícias (Navegar / Buscar)")
         print("[6] Conversar com o Oráculo RAG (Modo Estrito Anti-Alucinação)")
@@ -159,34 +159,89 @@ class NewsSummarizerApp:
         print(f"\n✅ Concluído! {result['processed_count']} artigos resumidos e indexados no Hipocampo (ChromaDB) com sucesso.")
         print("💡 Dica: Use a opção [3] a qualquer momento para compor o Boletim das Top 10 notícias!")
 
-    def generate_top_bulletin(self) -> None:
+    def generate_bulletin_menu(self) -> None:
         print("\n" + "=" * 60)
-        print("📰 Gerar Boletim Estratégico (Top 10 Notícias de Maior Peso)...")
+        print("📰 GERAR BOLETIM (Map-Reduce & Cache Inteligente)")
         print("=" * 60)
+        print("Escolha a modalidade:")
+        print("  [1] Top 10 mais relevantes (Padrão)")
+        print("  [2] Quantidade personalizada (ex: 5, 15, 25)")
+        print("  [3] Filtrar por tema (utiliza todas as notícias encontradas)")
+        print("  [v] Voltar")
 
-        print("🔍 Analisando notícias indexadas e ranqueando pelo Score Bayesiano...")
-        result = self.summarizer_service.generate_top_bulletin(top_k=10)
+        sub = input("\nEscolha uma opção: ").strip().lower()
+        if sub in ["v", "voltar", "q", "sair"]:
+            return
+
+        top_k: Optional[int] = 10
+        theme: Optional[str] = None
+
+        if sub in ["1", ""]:
+            top_k = 10
+            theme = None
+        elif sub == "2":
+            q_str = input("Quantidade desejada de notícias (ex: 5, 15, 25): ").strip()
+            if not q_str.isdigit() or int(q_str) <= 0:
+                print("[!] Quantidade inválida.")
+                return
+            top_k = int(q_str)
+            theme = None
+        elif sub == "3":
+            t_str = input("Digite o tema desejado (ex: Trump, Apple, Chips, Segurança): ").strip()
+            if not t_str:
+                print("[!] Tema não informado.")
+                return
+            theme = t_str
+            top_k = None
+        else:
+            print("[!] Opção inválida.")
+            return
+
+        print("\n🔍 Analisando notícias indexadas...")
+        result = self.summarizer_service.generate_strategic_bulletin(
+            top_k=top_k,
+            theme=theme,
+            force_regenerate=False,
+        )
 
         if result["status"] == "empty":
             print(f"\n[!] {result['message']}")
             return
 
         if result["status"] == "failed" or not result["bulletin"]:
-            print("\n[X] Não foi possível gerar o boletim.")
+            print("\n[X] Falha ao gerar o boletim.")
             return
 
         articles = result.get("articles_used", [])
-        print(f"\n🎯 Top {len(articles)} Notícias Selecionadas por Relevância:")
-        for idx, a in enumerate(articles, 1):
-            score = self.summarizer_service.bayesian_filter.score_article(f"{a.get('title', '')} {a.get('summary', '')}")
-            print(f"  [{idx:02d}] (Score: {score:4.1f}) {a.get('title')[:65]}")
+        is_cached = result.get("cached", False)
+        topic_name = result.get("topic", "Geral")
+
+        if is_cached:
+            dt = result.get("processed_at")
+            dt_str = dt.strftime("%d/%m/%Y às %H:%M:%S") if hasattr(dt, "strftime") else str(dt)
+            print("\n" + "-" * 70)
+            print(f"⚡ [CACHE ATIVO] Boletim idêntico já existente para este conjunto de notícias!")
+            print(f"   Modalidade: {topic_name} | Gerado em: {dt_str} | Base: {len(articles)} notícias")
+            print(f"   (Retornando versão em cache sem reprocessamento de GPU)")
+            print("-" * 70)
+        else:
+            print(f"\n🎯 Novo Boletim Gerado com {len(articles)} Notícias ({topic_name}):")
+            for idx, a in enumerate(articles[:10], 1):
+                score = self.summarizer_service.bayesian_filter.score_article(f"{a.get('title', '')} {a.get('summary', '')}")
+                print(f"  [{idx:02d}] (Score: {score:4.1f}) {a.get('title')[:65]}")
+            if len(articles) > 10:
+                print(f"  ... e mais {len(articles) - 10} notícias sintetizadas na esteira Map-Reduce.")
 
         print("\n" + "=" * 70)
-        print("📰 BOLETIM ESTRATÉGICO CONSOLIDADO (TOP 10)")
+        print(f"📰 BOLETIM CONSOLIDADO: {topic_name.upper()}")
         print("=" * 70)
         print(result["bulletin"])
         print("=" * 70)
-        print("💾 Boletim salvo em 'data/parquet/bulletins.parquet'.")
+        if not is_cached:
+            print("💾 Novo boletim gravado em 'data/parquet/bulletins.parquet'.")
+
+    # Alias para retrocompatibilidade
+    generate_top_bulletin = generate_bulletin_menu
 
     def view_saved_bulletins(self) -> None:
         bulletins = self.bulletin_viewer.get_all_bulletins()
@@ -413,7 +468,7 @@ class NewsSummarizerApp:
                 elif choice == "2":
                     self.run_summarization()
                 elif choice == "3":
-                    self.generate_top_bulletin()
+                    self.generate_bulletin_menu()
                 elif choice == "4":
                     self.view_saved_bulletins()
                 elif choice == "5":
