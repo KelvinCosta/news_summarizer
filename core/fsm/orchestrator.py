@@ -11,7 +11,11 @@ import logging
 from typing import Any, Dict, List, Optional
 from uuid import uuid4
 
-from core.application.services.gatekeeper import GatekeeperService, is_temporal_system_query
+from core.application.services.gatekeeper import (
+    GatekeeperService,
+    is_catalog_meta_query,
+    is_temporal_system_query,
+)
 from core.application.services.query_extractor import QueryExtractorService
 from core.application.services.grounded_oracle import GroundedOracleService
 from core.application.services.hybrid_retriever import HybridRetrieverService
@@ -299,12 +303,92 @@ class FSMOrchestrator:
             "content": resp_text,
             "metadata": {
                 "type": "relogio_do_sistema",
-                "title": "Relógio do Sistema e Frescor do Lake",
-                "source_url": last_url or "system://clock",
+                "title": "Relógio do Sistema (Horário Local)",
+                "source_url": "system://clock",
                 "processed_at": now_dt.strftime("%d/%m/%Y"),
             }
         }]
         return resp_text, context
+
+    def _generate_catalog_response(self, mode: str) -> tuple[str, List[Dict[str, Any]]]:
+        """Gera resposta determinística sobre a notícia mais recente ou mais antiga no acervo."""
+        if not self._parquet_store:
+            return "Não possuo registros no acervo no momento.", []
+
+        label = "mais recente" if mode == "recency" else "mais antiga"
+        summaries = (
+            self._parquet_store.get_latest_summaries(limit=1)
+            if mode == "recency"
+            else self._parquet_store.get_oldest_summaries(limit=1)
+        )
+
+        if not summaries:
+            return "Nenhuma notícia arquivada encontrada na base de dados.", []
+
+        row = summaries[0]
+        title = row.get("title", "Sem título")
+        dt = row.get("processed_at")
+        dt_str = dt.strftime("%d/%m/%Y às %H:%M") if hasattr(dt, "strftime") else str(dt)[:16]
+        summary = row.get("summary", "").strip()
+        url = row.get("original_url") or row.get("url") or ""
+
+        resp_text = (
+            f"A notícia **{label}** arquivada em minha base de inteligência é:\n\n"
+            f"📰 **{title}**\n"
+            f"🗓️ Processada em: {dt_str}\n\n"
+            f"**Resumo:**\n{summary}"
+        )
+
+        context = [{
+            "content": summary,
+            "metadata": {
+                "type": "individual_summary",
+                "title": title,
+                "source_url": url or f"system://catalog_{mode}",
+                "processed_at": dt.isoformat() if hasattr(dt, "isoformat") else str(dt),
+            }
+        }]
+        return resp_text, context
+
+    def _build_fast_factual_result(
+        self,
+        session_id: str,
+        response_text: str,
+        contexts: List[Dict[str, Any]],
+        strategy: str,
+        events: List[DomainEvent],
+    ) -> OrchestratorResult:
+        """Constrói deterministamente o resultado da FSM para meta-consultas do sistema (Zero GPU)."""
+        self.transition_to(SystemState.RETRIEVING_CONTEXT)
+        retrieval_event = ContextRetrieved(
+            session_id=session_id,
+            result_count=len(contexts),
+            strategy=strategy,
+        )
+        events.append(retrieval_event)
+        self._event_store.append(retrieval_event)
+
+        self.transition_to(SystemState.INFERENCING)
+        resp_event = ResponseGenerated(
+            session_id=session_id,
+            response=response_text,
+            model="system_metadata",
+        )
+        events.append(resp_event)
+        self._event_store.append(resp_event)
+
+        self.transition_to(SystemState.COMPLETED)
+        self.transition_to(SystemState.IDLE)
+
+        return OrchestratorResult(
+            session_id=session_id,
+            response=response_text,
+            intent=NewsIntentType.FACTUAL_QUERY,
+            events=events,
+            contexts=contexts,
+            handoff_triggered=False,
+            handoff_reason=None,
+        )
 
     def _handle_factual_query(
         self,
@@ -316,36 +400,24 @@ class FSMOrchestrator:
         # 1. Verificação rápida de meta-consulta temporal do sistema (Zero GPU)
         if is_temporal_system_query(user_message):
             response_text, contexts = self._generate_temporal_response()
-
-            self.transition_to(SystemState.RETRIEVING_CONTEXT)
-            retrieval_event = ContextRetrieved(
+            return self._build_fast_factual_result(
                 session_id=session_id,
-                result_count=len(contexts),
-                strategy="system_clock",
-            )
-            events.append(retrieval_event)
-            self._event_store.append(retrieval_event)
-
-            self.transition_to(SystemState.INFERENCING)
-            resp_event = ResponseGenerated(
-                session_id=session_id,
-                response=response_text,
-                model="system_clock",
-            )
-            events.append(resp_event)
-            self._event_store.append(resp_event)
-
-            self.transition_to(SystemState.COMPLETED)
-            self.transition_to(SystemState.IDLE)
-
-            return OrchestratorResult(
-                session_id=session_id,
-                response=response_text,
-                intent=NewsIntentType.FACTUAL_QUERY,
-                events=events,
+                response_text=response_text,
                 contexts=contexts,
-                handoff_triggered=False,
-                handoff_reason=None,
+                strategy="system_clock",
+                events=events,
+            )
+
+        # 2. Verificação rápida de meta-consulta de catálogo (mais recente / mais antiga) (Zero GPU)
+        catalog_mode = is_catalog_meta_query(user_message)
+        if catalog_mode is not None:
+            response_text, contexts = self._generate_catalog_response(catalog_mode)
+            return self._build_fast_factual_result(
+                session_id=session_id,
+                response_text=response_text,
+                contexts=contexts,
+                strategy=f"catalog_{catalog_mode}",
+                events=events,
             )
 
         # Estágio 2: Extração de filtros estruturados

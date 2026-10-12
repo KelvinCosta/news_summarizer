@@ -163,6 +163,17 @@ class ParquetStore:
         df_sorted = df.sort("processed_at", descending=True)
         return df_sorted.head(limit).to_dicts()
 
+    def get_oldest_summaries(self, limit: int = 5) -> List[dict]:
+        """Recupera os resumos mais antigos arquivados, ordenados de forma ascendente."""
+        if not self.summaries_path.exists():
+            return []
+        df = pl.read_parquet(self.summaries_path)
+        if df.height == 0:
+            return []
+        
+        df_sorted = df.sort("processed_at", descending=False)
+        return df_sorted.head(limit).to_dicts()
+
     def get_all_summaries(self) -> List[dict]:
         """Recupera todos os resumos processados ordenados por data decrescente."""
         if not self.summaries_path.exists():

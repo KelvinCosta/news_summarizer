@@ -42,11 +42,44 @@ def is_temporal_system_query(query: str) -> bool:
     return False
 
 
+def is_catalog_meta_query(query: str) -> Optional[str]:
+    """Detecta se a mensagem é uma consulta sobre o catálogo de notícias (mais recente, mais antiga).
+    
+    Retorna 'recency', 'antiquity' ou None.
+    """
+    if not query or not query.strip():
+        return None
+    import re
+    q = re.sub(r"[^\w\s]", "", query.lower().strip())
+
+    recency_patterns = [
+        r".*not[ií]cia mais recente.*",
+        r".*not[ií]cia mais atual.*",
+        r".*[uú]ltima not[ií]cia.*",
+        r".*[uú]ltimo artigo.*",
+        r".*artigo mais recente.*",
+        r".*artigo mais atual.*",
+    ]
+    if any(re.match(p, q) for p in recency_patterns):
+        return "recency"
+
+    antiquity_patterns = [
+        r".*not[ií]cia mais antiga.*",
+        r".*artigo mais antig[ao].*",
+        r".*primeira not[ií]cia.*",
+        r".*primeiro artigo.*",
+    ]
+    if any(re.match(p, q) for p in antiquity_patterns):
+        return "antiquity"
+
+    return None
+
+
 GATEKEEPER_SYSTEM_PROMPT = """Você é o classificador de intenções do News Summarizer.
 Classifique a mensagem do usuário estritamente em uma das 4 categorias:
-- FACTUAL_QUERY: Perguntas pontuais sobre fatos, notícias arquivadas, tecnologias, empresas ou acontecimentos (ex: "O que a Apple lançou?", "Qual o impacto da nova GPU?", "Quem comprou a startup?").
+- FACTUAL_QUERY: Perguntas pontuais sobre fatos, notícias arquivadas, tecnologias, empresas ou acontecimentos (ex: "O que a Apple lançou?", "Qual sua notícia mais recente?", "Qual a notícia mais antiga?").
 - TRENDS_SUMMARY: Pedidos de resumo geral, boletim diário, panorama executivo ou tendências (ex: "Me dê o resumo de hoje", "Quais as tendências de IA?", "Gere um briefing do dia").
-- OUT_OF_DOMAIN: Assuntos alheios a notícias, tecnologia e atualidades (ex: piadas, receitas, previsão do tempo genérica, futebol).
+- OUT_OF_DOMAIN: Assuntos alheios a notícias, tecnologia e atualidades (ex: piadas, receitas, previsão do tempo genérica, futebol). Perguntas sobre o acervo de notícias do sistema NUNCA são OUT_OF_DOMAIN.
 - HUMAN_INTERVENTION: Pedido de intervenção humana, suporte técnico manual ou correção de regras (ex: "Quero falar com um humano", "Alguém pode me ajudar?", "Ajuste a diretriz").
 
 Responda exclusivamente no formato JSON com a chave "intent":
@@ -54,6 +87,15 @@ Responda exclusivamente no formato JSON com a chave "intent":
 
 Exemplos:
 Entrada: "O que aconteceu com a OpenAI ontem?"
+Resposta: {"intent": "FACTUAL_QUERY"}
+
+Entrada: "Qual sua notícia mais recente?"
+Resposta: {"intent": "FACTUAL_QUERY"}
+
+Entrada: "Qual a notícia mais antiga?"
+Resposta: {"intent": "FACTUAL_QUERY"}
+
+Entrada: "Qual sua notícia mais atual arquivada?"
 Resposta: {"intent": "FACTUAL_QUERY"}
 
 Entrada: "Quais os novos avanços em chips de IA reportados nas notícias?"
@@ -120,7 +162,7 @@ class GatekeeperService:
         msg_lower = msg_clean.lower()
 
         # Guardrails heurísticos rápidos (Fail-Fast pré-LLM para economia de ciclos)
-        if is_temporal_system_query(msg_clean):
+        if is_temporal_system_query(msg_clean) or is_catalog_meta_query(msg_clean) is not None:
             return NewsIntentType.FACTUAL_QUERY
 
         human_indicators = ["falar com humano", "operador humano", "atendente", "intervenção manual", "ajuste a regra"]

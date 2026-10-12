@@ -18,6 +18,7 @@ from core.fsm.states import SystemState
 from core.application.services.gatekeeper import GatekeeperService
 from core.application.services.query_extractor import QueryExtractorService
 from core.application.services.grounded_oracle import GroundedOracleService
+from core.persistence.parquet_store import ParquetStore
 
 
 class TestFSMOrchestrator:
@@ -167,4 +168,46 @@ class TestFSMOrchestrator:
         event_types = [type(e) for e in events]
         assert ContextRetrieved in event_types
         assert ResponseGenerated in event_types
+
+    def test_handle_catalog_recency_and_antiquity_queries(self):
+        mock_parquet = MagicMock(spec=ParquetStore)
+        mock_parquet.get_latest_summaries.return_value = [
+            {
+                "title": "Notícia Super Recente",
+                "summary": "Resumo do que acabou de acontecer.",
+                "original_url": "https://tech.com/new",
+                "processed_at": "2026-10-12T13:00:00",
+            }
+        ]
+        mock_parquet.get_oldest_summaries.return_value = [
+            {
+                "title": "Notícia Bem Antiga",
+                "summary": "Resumo do primeiro artigo do mês.",
+                "original_url": "https://tech.com/old",
+                "processed_at": "2026-10-01T10:00:00",
+            }
+        ]
+
+        event_store = ImmutableEventStore()
+        orchestrator = FSMOrchestrator(parquet_store=mock_parquet, event_store=event_store)
+
+        # 1. Recente
+        res_rec = orchestrator.handle_message("qual sua noticia mais recente?")
+        assert res_rec.intent == NewsIntentType.FACTUAL_QUERY
+        assert not res_rec.handoff_triggered
+        assert "Notícia Super Recente" in res_rec.response
+        assert res_rec.contexts[0]["metadata"]["source_url"] == "https://tech.com/new"
+
+        # 2. Antiga
+        res_ant = orchestrator.handle_message("qual sua noticia mais antiga?")
+        assert res_ant.intent == NewsIntentType.FACTUAL_QUERY
+        assert not res_ant.handoff_triggered
+        assert "Notícia Bem Antiga" in res_ant.response
+        assert res_ant.contexts[0]["metadata"]["source_url"] == "https://tech.com/old"
+
+        # 3. Mais atual
+        res_atu = orchestrator.handle_message("qual sua noticia mais atual?")
+        assert res_atu.intent == NewsIntentType.FACTUAL_QUERY
+        assert not res_atu.handoff_triggered
+        assert "Notícia Super Recente" in res_atu.response
 
