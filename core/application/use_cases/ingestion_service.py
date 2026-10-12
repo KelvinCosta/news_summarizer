@@ -8,7 +8,7 @@ Executa o fetch de feeds RSS, aplica o funil matemático de descarte:
 """
 
 import logging
-from typing import List, Optional
+from typing import Callable, List, Optional
 from uuid import uuid4
 
 from core.domain.article import Article
@@ -73,11 +73,16 @@ class IngestionService:
         self.event_store = event_store or ImmutableEventStore()
         self.feeds = feeds or load_configured_feeds()
 
-    def run(self, custom_articles: Optional[List[Article]] = None) -> dict:
+    def run(
+        self,
+        custom_articles: Optional[List[Article]] = None,
+        progress_callback: Optional[Callable[[int, int, int], None]] = None,
+    ) -> dict:
         """Executa o ciclo completo de ingestão e filtragem.
 
         Args:
             custom_articles: Lista opcional de artigos brutos (útil para testes unitários/offline).
+            progress_callback: Callback opcional de progresso para download concorrente.
         """
         session_id = str(uuid4())
         logger.info(f"[{SystemState.INGESTING.value}] Iniciando ciclo de ingestão de feeds...")
@@ -87,7 +92,7 @@ class IngestionService:
         else:
             parser = RSSParser(self.feeds)
             try:
-                articles = parser.fetch_all()
+                articles = parser.fetch_all(progress_callback=progress_callback)
             except Exception as e:
                 logger.error(f"Erro ao capturar feeds RSS: {e}")
                 articles = []

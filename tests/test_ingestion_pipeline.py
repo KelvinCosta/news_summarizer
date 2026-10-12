@@ -78,3 +78,44 @@ class TestIngestionPipeline:
         assert any(isinstance(e, ArticleFiltered) and e.status == "accepted" for e in events)
         assert any(isinstance(e, ArticleFiltered) and e.status == "discarded_lexical_duplicate" for e in events)
 
+    def test_rss_parser_concurrent_fetch_with_mock(self, monkeypatch):
+        from unittest.mock import MagicMock
+        from core.ingestion.rss_parser import RSSParser
+
+        rss_xml = b"""<?xml version="1.0" encoding="UTF-8"?>
+        <rss version="2.0">
+            <channel>
+                <title>Mock Tech Feed</title>
+                <item>
+                    <title>AI Revolution 2026</title>
+                    <link>https://tech.com/ai-2026</link>
+                    <description>Summary of AI news</description>
+                </item>
+            </channel>
+        </rss>"""
+
+        mock_resp = MagicMock()
+        mock_resp.content = rss_xml
+        mock_resp.raise_for_status = MagicMock()
+
+        # Mock httpx.Client.get
+        monkeypatch.setattr("httpx.Client.get", lambda self, url, **kwargs: mock_resp)
+
+        progress_calls = []
+        def track_progress(done, total, count):
+            progress_calls.append((done, total, count))
+
+        parser = RSSParser(
+            feeds=["https://feed1.com/rss", "https://feed2.com/rss "],
+            max_workers=2,
+            timeout_seconds=2.0,
+        )
+        articles = parser.fetch_all(progress_callback=track_progress)
+
+        assert len(articles) == 2
+        assert articles[0].title == "AI Revolution 2026"
+        assert len(progress_calls) == 2
+        assert progress_calls[-1][0] == 2
+        assert progress_calls[-1][1] == 2
+
+

@@ -72,3 +72,33 @@ class TestSummarizerPipeline:
         bulletins = store.get_all_bulletins()
         assert len(bulletins) == 1
 
+    def test_run_map_reduce_with_limit(self, mock_env):
+        service, store, memory, summarizer_agent, master_agent = mock_env
+
+        store.append([
+            Article(
+                url="https://tech.com/article1",
+                title="Artigo 1",
+                content="Conteúdo 1",
+                published_at=datetime.now(timezone.utc),
+                source="Source1",
+            ),
+            Article(
+                url="https://tech.com/article2",
+                title="Artigo 2",
+                content="Conteúdo 2",
+                published_at=datetime.now(timezone.utc),
+                source="Source2",
+            ),
+        ])
+
+        summarizer_agent.summarize.return_value = "Resumo válido."
+        master_agent.generate_global_bulletin.return_value = "Boletim de teste."
+
+        result = service.run(limit=1)
+
+        assert result["status"] == "success"
+        assert result["processed_count"] == 1
+        assert summarizer_agent.summarize.call_count == 1
+
+

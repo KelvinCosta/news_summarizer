@@ -4,7 +4,7 @@
 ![Python](https://img.shields.io/badge/python-3.12%2B-blue.svg)
 ![Ollama](https://img.shields.io/badge/ollama-local-orange.svg)
 ![Clean Architecture](https://img.shields.io/badge/architecture-clean-green.svg)
-![Tests](https://img.shields.io/badge/tests-39%20passed-brightgreen.svg)
+![Tests](https://img.shields.io/badge/tests-41%20passed-brightgreen.svg)
 
 News Summarizer é um sistema autônomo de inteligência de notícias baseado em *Small Language Models* (SLMs) projetado para rodar 100% On-Premise (local) em hardwares de consumo (ex: RTX 3060 12GB). 
 

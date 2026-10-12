@@ -71,12 +71,23 @@ class NewsSummarizerApp:
         print("[0] Sair")
 
     def run_ingestion(self) -> None:
+        total_feeds = len(self.ingestion_service.feeds)
         print("\n" + "=" * 60)
-        print("🚀 Executando Ingestão e Funil Matemático O(1)...")
+        print(f"🚀 Ingestão Concorrente: Baixando {total_feeds} Feeds RSS em paralelo...")
+        print("   (Fail-fast timeout: 7s por feed | 16 workers assíncronos)")
         print("=" * 60)
-        result = self.ingestion_service.run()
 
-        print("\n=== Resumo do Funil ===")
+        def on_feed_progress(done: int, total: int, count: int) -> None:
+            pct = int((done / total) * 100) if total > 0 else 100
+            sys.stdout.write(
+                f"\r  [📡 Rede] Feeds: {done}/{total} ({pct}%) | Artigos capturados: {count} "
+            )
+            sys.stdout.flush()
+
+        result = self.ingestion_service.run(progress_callback=on_feed_progress)
+        print()
+
+        print("\n=== Resumo do Funil Matemático O(1) ===")
         print(f"Total de Artigos Brutos : {result['total_raw']}")
         print(f"Descartados por Cópia   : {result['discarded_duplicates']} (SimHash O(1))")
         print(f"Descartados Irrelevantes: {result['discarded_irrelevant']} (Naive Bayes)")
@@ -86,13 +97,45 @@ class NewsSummarizerApp:
 
     def run_summarization(self) -> None:
         print("\n" + "=" * 60)
-        print("🧠 Executando Pipeline Map-Reduce (Agentes SLM Locais)...")
+        print("🧠 Pipeline Map-Reduce (Agentes SLM Locais)...")
         print("=" * 60)
-        result = self.summarizer_service.run()
+
+        unsummarized = self.parquet_store.get_unsummarized_articles()
+        total_pending = len(unsummarized)
+
+        if total_pending == 0:
+            print("\n[!] Não há notícias novas aguardando sumarização hoje.")
+            print("Dica: Execute a opção [1] para ingerir novos artigos.")
+            return
+
+        print(f"\nDetectadas {total_pending} notícias inéditas pendentes no Parquet.")
+        print("Deseja resumir quantas nesta rodada? (SLMs locais levam ~3-6s por artigo)")
+        print("  [Enter] Top 10 mais recentes (recomendado para resposta rápida)")
+        print("  [número] Digite uma quantidade personalizada (ex: 5, 20)")
+        print("  [todas]  Processar todas as notícias pendentes")
+
+        choice = input("\nEscolha: ").strip().lower()
+        limit: Optional[int] = 10
+        if choice in ["todas", "all", "t"]:
+            limit = None
+        elif choice.isdigit() and int(choice) > 0:
+            limit = int(choice)
+        elif choice == "":
+            limit = 10
+
+        batch_desc = f"{limit} artigos" if limit else f"todos os {total_pending} artigos"
+        print(f"\n🚀 Iniciando síntese Map-Reduce de {batch_desc}...")
+
+        def on_summary_progress(current: int, total: int, title: str) -> None:
+            short_title = (title[:35] + "...") if len(title) > 35 else title
+            sys.stdout.write(f"\r  [🧠 SLM] Processando ({current}/{total}): '{short_title}' ")
+            sys.stdout.flush()
+
+        result = self.summarizer_service.run(limit=limit, progress_callback=on_summary_progress)
+        print()
 
         if result["status"] == "empty":
             print(f"\n[!] {result['message']}")
-            print("Dica: Execute a opção [1] para ingerir novos artigos.")
             return
 
         if result["status"] == "failed":
