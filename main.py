@@ -63,9 +63,9 @@ class NewsSummarizerApp:
     def print_menu(self) -> None:
         print("\n=== MENU PRINCIPAL ===")
         print("[1] Ingestão de Notícias & Funil O(1) (RSS -> SimHash -> Naive Bayes)")
-        print("[2] Executar Pipeline Map-Reduce (Resumos SLM + Vetorização + Boletim)")
-        print("[3] Visualizar Mega-Boletins por Data (Visão Executiva)")
-        print("[4] Visualizar Boletins Parciais (Sessões Individuais)")
+        print("[2] Processar & Indexar Notícias (SLM Map -> Parquet -> ChromaDB)")
+        print("[3] Gerar Boletim Estratégico (Top 10 Notícias de Maior Peso)")
+        print("[4] Visualizar Histórico de Boletins Gerados")
         print("[5] Conversar com o Oráculo RAG (Modo Estrito Anti-Alucinação)")
         print("[6] Trilha de Auditoria (Event Sourcing da Sessão)")
         print("[0] Sair")
@@ -97,7 +97,7 @@ class NewsSummarizerApp:
 
     def run_summarization(self) -> None:
         print("\n" + "=" * 60)
-        print("🧠 Pipeline Map-Reduce (Agentes SLM Locais)...")
+        print("🧠 Processamento & Indexação de Notícias (SLM Map + ChromaDB)...")
         print("=" * 60)
 
         unsummarized = self.parquet_store.get_unsummarized_articles()
@@ -109,22 +109,22 @@ class NewsSummarizerApp:
             return
 
         print(f"\nDetectadas {total_pending} notícias inéditas pendentes no Parquet.")
-        print("Deseja resumir quantas nesta rodada? (SLMs locais levam ~3-6s por artigo)")
-        print("  [Enter] Top 10 mais relevantes para IA/Tech (Recomendado: ~40s de inferência)")
-        print("  [número] Digite uma quantidade personalizada (ex: 5, 20, 50)")
+        print("Deseja resumir e indexar quantas nesta rodada? (SLMs locais levam ~2-4s por artigo)")
+        print("  [Enter] Top 10 mais relevantes para IA/Tech (~30s)")
+        print("  [número] Digite uma quantidade personalizada (ex: 25, 50)")
         print(f"  [todas]  Processar todas as {total_pending} notícias pendentes")
 
         choice = input("\nEscolha: ").strip().lower()
         limit: Optional[int] = 10
         if choice in ["todas", "all", "t"]:
             if total_pending > 50:
-                est_min = int((total_pending * 5) / 60)
+                est_min = int((total_pending * 3) / 60)
                 confirm = input(
                     f"\n⚠️  Atenção: Processar {total_pending} notícias levará ~{est_min} minutos ininterruptos "
                     f"de GPU/VRAM.\nDeseja mesmo processar todas agora? (s/N): "
                 ).strip().lower()
                 if confirm not in ["s", "sim", "y", "yes"]:
-                    print("Operação cancelada para segurança da GPU. Experimente um lote de 15 ou 25 artigos.")
+                    print("Operação cancelada para segurança da GPU. Experimente um lote de 25 ou 50 artigos.")
                     return
             limit = None
         elif choice.isdigit() and int(choice) > 0:
@@ -133,14 +133,18 @@ class NewsSummarizerApp:
             limit = 10
 
         batch_desc = f"{limit} artigos prioritários" if limit else f"todos os {total_pending} artigos"
-        print(f"\n🚀 Iniciando síntese Map-Reduce de {batch_desc}...")
+        print(f"\n🚀 Iniciando processamento e indexação de {batch_desc}...")
 
         def on_summary_progress(current: int, total: int, title: str) -> None:
             short_title = (title[:35] + "...") if len(title) > 35 else title
             sys.stdout.write(f"\r  [🧠 SLM] Processando ({current}/{total}): '{short_title}' ")
             sys.stdout.flush()
 
-        result = self.summarizer_service.run(limit=limit, progress_callback=on_summary_progress)
+        result = self.summarizer_service.run(
+            limit=limit,
+            progress_callback=on_summary_progress,
+            generate_bulletin=False,
+        )
         print()
 
         if result["status"] == "empty":
@@ -151,60 +155,46 @@ class NewsSummarizerApp:
             print(f"\n[X] Falha no processamento: {result['message']}")
             return
 
-        print(f"\n✅ Concluído! {result['processed_count']} artigos resumidos e vetorizados.")
-        if result["bulletin"]:
-            print("\n" + "=" * 70)
-            print("📰 BOLETIM DIÁRIO GLOBAL CONSOLIDADO")
-            print("=" * 70)
-            print(result["bulletin"])
-            print("=" * 70)
+        print(f"\n✅ Concluído! {result['processed_count']} artigos resumidos e indexados no Hipocampo (ChromaDB) com sucesso.")
+        print("💡 Dica: Use a opção [3] a qualquer momento para compor o Boletim das Top 10 notícias!")
 
-    def view_by_date(self) -> None:
-        dates = self.bulletin_viewer.get_dates()
-        if not dates:
-            print("\n[!] Nenhum boletim encontrado no banco de dados.")
+    def generate_top_bulletin(self) -> None:
+        print("\n" + "=" * 60)
+        print("📰 Gerar Boletim Estratégico (Top 10 Notícias de Maior Peso)...")
+        print("=" * 60)
+
+        print("🔍 Analisando notícias indexadas e ranqueando pelo Score Bayesiano...")
+        result = self.summarizer_service.generate_top_bulletin(top_k=10)
+
+        if result["status"] == "empty":
+            print(f"\n[!] {result['message']}")
             return
 
-        print("\n--- DATAS DISPONÍVEIS ---")
-        for i, date_str in enumerate(dates):
-            print(f"[{i}] {date_str}")
-
-        choice = input("\nSelecione o número da data desejada (ou 'v' para voltar): ").strip()
-        if choice.lower() in ["v", "q", "voltar"]:
+        if result["status"] == "failed" or not result["bulletin"]:
+            print("\n[X] Não foi possível gerar o boletim.")
             return
 
-        try:
-            idx = int(choice)
-            if 0 <= idx < len(dates):
-                selected_date = dates[idx]
-                content, origin = self.bulletin_viewer.get_daily_content(selected_date)
+        articles = result.get("articles_used", [])
+        print(f"\n🎯 Top {len(articles)} Notícias Selecionadas por Relevância:")
+        for idx, a in enumerate(articles, 1):
+            score = self.summarizer_service.bayesian_filter.score_article(f"{a.get('title', '')} {a.get('summary', '')}")
+            print(f"  [{idx:02d}] (Score: {score:4.1f}) {a.get('title')[:65]}")
 
-                if content:
-                    orig_map = {
-                        "cached": "Recuperado do Cache / Parquet",
-                        "single_session": "Sessão Única do Dia",
-                        "fused_now": "Fundido Agora pelo Agente Master",
-                        "partial_fallback": "Boletim Parcial",
-                    }
-                    print("\n" + "=" * 75)
-                    print(f"🌟 MEGA-BOLETIM DO DIA: {selected_date} ({orig_map.get(origin, origin)})")
-                    print("=" * 75)
-                    print(f"\n{content}\n")
-                    print("=" * 75)
-                else:
-                    print("Nenhum conteúdo pôde ser recuperado para esta data.")
-            else:
-                print("Número fora do intervalo.")
-        except ValueError:
-            print("Entrada inválida.")
+        print("\n" + "=" * 70)
+        print("📰 BOLETIM ESTRATÉGICO CONSOLIDADO (TOP 10)")
+        print("=" * 70)
+        print(result["bulletin"])
+        print("=" * 70)
+        print("💾 Boletim salvo em 'data/parquet/bulletins.parquet'.")
 
-    def view_by_session(self) -> None:
+    def view_saved_bulletins(self) -> None:
         bulletins = self.bulletin_viewer.get_all_bulletins()
         if not bulletins:
-            print("\n[!] Nenhum boletim parcial encontrado no banco de dados.")
+            print("\n[!] Nenhum boletim encontrado no banco de dados.")
+            print("Dica: Use a opção [3] para gerar um boletim primeiro.")
             return
 
-        print("\n--- BOLETINS PARCIAIS (Sessões Individuais) ---")
+        print("\n--- HISTÓRICO DE BOLETINS GERADOS ---")
         for i, b in enumerate(bulletins):
             dt = b["processed_at"]
             dt_str = dt.strftime("%d/%m/%Y às %H:%M:%S") if hasattr(dt, "strftime") else str(dt)
@@ -221,7 +211,7 @@ class NewsSummarizerApp:
                 dt = selected["processed_at"]
                 dt_str = dt.strftime("%d/%m/%Y às %H:%M:%S") if hasattr(dt, "strftime") else str(dt)
                 print("\n" + "=" * 75)
-                print(f"📰 BOLETIM PARCIAL DE {dt_str}")
+                print(f"📰 BOLETIM DE {dt_str}")
                 print("=" * 75)
                 print(f"\n{selected['content']}\n")
                 print("=" * 75)
@@ -327,9 +317,9 @@ class NewsSummarizerApp:
                 elif choice == "2":
                     self.run_summarization()
                 elif choice == "3":
-                    self.view_by_date()
+                    self.generate_top_bulletin()
                 elif choice == "4":
-                    self.view_by_session()
+                    self.view_saved_bulletins()
                 elif choice == "5":
                     self.run_rag_chat()
                 elif choice == "6":
