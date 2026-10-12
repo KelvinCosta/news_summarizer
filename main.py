@@ -66,8 +66,9 @@ class NewsSummarizerApp:
         print("[2] Processar & Indexar Notícias (SLM Map -> Parquet -> ChromaDB)")
         print("[3] Gerar Boletim Estratégico (Top 10 Notícias de Maior Peso)")
         print("[4] Visualizar Histórico de Boletins Gerados")
-        print("[5] Conversar com o Oráculo RAG (Modo Estrito Anti-Alucinação)")
-        print("[6] Trilha de Auditoria (Event Sourcing da Sessão)")
+        print("[5] Visualizar Sumários Individuais de Notícias (Navegar / Buscar)")
+        print("[6] Conversar com o Oráculo RAG (Modo Estrito Anti-Alucinação)")
+        print("[7] Trilha de Auditoria (Event Sourcing da Sessão)")
         print("[0] Sair")
 
     def run_ingestion(self) -> None:
@@ -220,6 +221,88 @@ class NewsSummarizerApp:
         except ValueError:
             print("Entrada inválida.")
 
+    def view_individual_summaries(self) -> None:
+        summaries = self.parquet_store.get_all_summaries()
+        if not summaries:
+            print("\n[!] Nenhum resumo encontrado no banco de dados.")
+            print("Dica: Use a opção [2] para processar notícias primeiro.")
+            return
+
+        total = len(summaries)
+        page_size = 10
+        page = 0
+        total_pages = (total + page_size - 1) // page_size
+
+        while True:
+            start_idx = page * page_size
+            end_idx = min(start_idx + page_size, total)
+            page_items = summaries[start_idx:end_idx]
+
+            print("\n" + "=" * 75)
+            print(f"📚 SUMÁRIOS INDIVIDUAIS DE NOTÍCIAS (Página {page + 1}/{total_pages} - Total: {total})")
+            print("=" * 75)
+            for i, s in enumerate(page_items, start=start_idx):
+                dt = s.get("processed_at")
+                dt_str = dt.strftime("%d/%m %H:%M") if hasattr(dt, "strftime") else str(dt)[:16]
+                title = s.get("title", "Sem título")
+                short_title = (title[:58] + "...") if len(title) > 58 else title
+                print(f"[{i:03d}] [{dt_str}] {short_title}")
+
+            print("\nComandos: [número] Ler resumo | [p] Próxima | [a] Anterior | [f] Filtrar/Buscar | [v] Voltar")
+            choice = input("Escolha: ").strip().lower()
+
+            if choice in ["v", "voltar", "q", "sair"]:
+                break
+            elif choice in ["p", "prox", "proxima", "next"]:
+                if page < total_pages - 1:
+                    page += 1
+                else:
+                    print("\n[!] Você já está na última página.")
+            elif choice in ["a", "ant", "anterior", "prev"]:
+                if page > 0:
+                    page -= 1
+                else:
+                    print("\n[!] Você já está na primeira página.")
+            elif choice in ["f", "buscar", "filtro"]:
+                term = input("\nTermo de busca (palavra-chave no título ou texto): ").strip().lower()
+                if term:
+                    filtered = [
+                        (idx, s) for idx, s in enumerate(summaries)
+                        if term in s.get("title", "").lower() or term in s.get("summary", "").lower()
+                    ]
+                    if not filtered:
+                        print(f"\n[!] Nenhum resumo encontrado contendo '{term}'.")
+                    else:
+                        print(f"\n🔍 Encontrados {len(filtered)} resultados para '{term}':")
+                        for f_idx, (orig_idx, sf) in enumerate(filtered[:15]):
+                            t = sf.get("title", "")
+                            print(f"  [{f_idx:02d}] (Item #{orig_idx:03d}) {t[:60]}")
+                        sub_choice = input("\nDigite o número [0-14] para ler (ou Enter para voltar): ").strip()
+                        if sub_choice.isdigit() and int(sub_choice) < len(filtered):
+                            sel = filtered[int(sub_choice)][1]
+                            self._print_single_summary(sel)
+            elif choice.isdigit():
+                idx = int(choice)
+                if 0 <= idx < total:
+                    self._print_single_summary(summaries[idx])
+                else:
+                    print("\n[!] Número fora do intervalo.")
+            else:
+                print("\n[!] Entrada inválida.")
+
+    def _print_single_summary(self, item: dict) -> None:
+        dt = item.get("processed_at")
+        dt_str = dt.strftime("%d/%m/%Y às %H:%M:%S") if hasattr(dt, "strftime") else str(dt)
+        print("\n" + "=" * 75)
+        print(f"📰 {item.get('title', 'Sem título')}")
+        print(f"📅 Data de Processamento: {dt_str}")
+        if item.get("original_url"):
+            print(f"🔗 Link da Fonte: {item['original_url']}")
+        print("=" * 75)
+        print(f"\n{item.get('summary', '')}\n")
+        print("=" * 75)
+        input("Pressione Enter para voltar à navegação...")
+
     def run_rag_chat(self) -> None:
         print("\n" + "=" * 75)
         print("🧠 Terminal de RAG - Modo Oráculo Estrito (Clean Architecture)")
@@ -321,14 +404,16 @@ class NewsSummarizerApp:
                 elif choice == "4":
                     self.view_saved_bulletins()
                 elif choice == "5":
-                    self.run_rag_chat()
+                    self.view_individual_summaries()
                 elif choice == "6":
+                    self.run_rag_chat()
+                elif choice == "7":
                     self.view_audit_log()
                 elif choice in ["0", "sair", "exit", "quit", "q"]:
                     print("\nEncerrando o News Summarizer. Até logo! 👋\n")
                     break
                 else:
-                    print("\n[!] Opção inválida. Digite um número de 0 a 6.")
+                    print("\n[!] Opção inválida. Digite um número de 0 a 7.")
             except KeyboardInterrupt:
                 print("\n\nSessão encerrada pelo usuário. Até logo!")
                 break
