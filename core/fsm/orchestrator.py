@@ -11,7 +11,7 @@ import logging
 from typing import Any, Dict, List, Optional
 from uuid import uuid4
 
-from core.application.services.gatekeeper import GatekeeperService
+from core.application.services.gatekeeper import GatekeeperService, is_temporal_system_query
 from core.application.services.query_extractor import QueryExtractorService
 from core.application.services.grounded_oracle import GroundedOracleService
 from core.application.services.hybrid_retriever import HybridRetrieverService
@@ -265,6 +265,47 @@ class FSMOrchestrator:
             handoff_reason="no_data" if is_refusal else None,
         )
 
+    def _generate_temporal_response(self) -> tuple[str, List[Dict[str, Any]]]:
+        """Gera resposta contextualizada para consultas temporais do sistema com integridade do Lake."""
+        from datetime import datetime
+        now_dt = datetime.now()
+        dias_semana = [
+            "segunda-feira", "terça-feira", "quarta-feira",
+            "quinta-feira", "sexta-feira", "sábado", "domingo"
+        ]
+        dia_semana_str = dias_semana[now_dt.weekday()]
+        meses = [
+            "janeiro", "fevereiro", "março", "abril", "maio", "junho",
+            "julho", "agosto", "setembro", "outubro", "novembro", "dezembro"
+        ]
+        mes_str = meses[now_dt.month - 1]
+        data_formatada = f"{now_dt.day} de {mes_str} de {now_dt.year} ({dia_semana_str})"
+
+        info_base = ""
+        last_url = ""
+        if self._parquet_store:
+            try:
+                sums = self._parquet_store.get_latest_summaries(limit=1)
+                if sums:
+                    dt_proc = sums[0].get("processed_at")
+                    dt_proc_str = dt_proc.strftime("%d/%m/%Y") if hasattr(dt_proc, "strftime") else str(dt_proc)[:10]
+                    last_url = sums[0].get("original_url") or sums[0].get("url") or ""
+                    info_base = f" Minha base de inteligência contém notícias arquivadas e atualizadas até {dt_proc_str}."
+            except Exception:
+                pass
+
+        resp_text = f"Hoje é {data_formatada}.{info_base}"
+        context = [{
+            "content": resp_text,
+            "metadata": {
+                "type": "relogio_do_sistema",
+                "title": "Relógio do Sistema e Frescor do Lake",
+                "source_url": last_url or "system://clock",
+                "processed_at": now_dt.strftime("%d/%m/%Y"),
+            }
+        }]
+        return resp_text, context
+
     def _handle_factual_query(
         self,
         session_id: str,
@@ -272,6 +313,41 @@ class FSMOrchestrator:
         events: List[DomainEvent],
     ) -> OrchestratorResult:
         """Processa perguntas factuais pontuais no Modo Oráculo Estrito."""
+        # 1. Verificação rápida de meta-consulta temporal do sistema (Zero GPU)
+        if is_temporal_system_query(user_message):
+            response_text, contexts = self._generate_temporal_response()
+
+            self.transition_to(SystemState.RETRIEVING_CONTEXT)
+            retrieval_event = ContextRetrieved(
+                session_id=session_id,
+                result_count=len(contexts),
+                strategy="system_clock",
+            )
+            events.append(retrieval_event)
+            self._event_store.append(retrieval_event)
+
+            self.transition_to(SystemState.INFERENCING)
+            resp_event = ResponseGenerated(
+                session_id=session_id,
+                response=response_text,
+                model="system_clock",
+            )
+            events.append(resp_event)
+            self._event_store.append(resp_event)
+
+            self.transition_to(SystemState.COMPLETED)
+            self.transition_to(SystemState.IDLE)
+
+            return OrchestratorResult(
+                session_id=session_id,
+                response=response_text,
+                intent=NewsIntentType.FACTUAL_QUERY,
+                events=events,
+                contexts=contexts,
+                handoff_triggered=False,
+                handoff_reason=None,
+            )
+
         # Estágio 2: Extração de filtros estruturados
         filters = self._query_extractor.extract(user_message)
         filter_event = SearchFiltersExtracted(session_id=session_id, filters=filters)

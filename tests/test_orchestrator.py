@@ -148,3 +148,23 @@ class TestFSMOrchestrator:
         with pytest.raises(ValueError):
             orchestrator.handle_human_correction("correção indevida")
 
+    def test_handle_temporal_system_query_fast_path(self):
+        event_store = ImmutableEventStore()
+        orchestrator = FSMOrchestrator(event_store=event_store)
+
+        result = orchestrator.handle_message("que dia é hoje?")
+
+        assert result.intent == NewsIntentType.FACTUAL_QUERY
+        assert "Hoje é" in result.response
+        assert not result.handoff_triggered
+        assert result.handoff_reason is None
+        assert len(result.contexts) == 1
+        assert result.contexts[0]["metadata"]["type"] == "relogio_do_sistema"
+        assert orchestrator.current_state == SystemState.IDLE
+
+        # Verifica Event Sourcing
+        events = event_store.get_events()
+        event_types = [type(e) for e in events]
+        assert ContextRetrieved in event_types
+        assert ResponseGenerated in event_types
+

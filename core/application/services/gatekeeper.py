@@ -11,10 +11,35 @@ fallback determinístico de segurança para HUMAN_INTERVENTION.
 """
 
 import json
+import re
 from typing import Optional
 
 from core.domain.models.intents import NewsIntentType
 from core.infrastructure.adapters.ollama_client import OllamaClient
+
+
+def is_temporal_system_query(query: str) -> bool:
+    """Verifica deterministicamente se a mensagem é uma consulta sobre a data/dia atual."""
+    if not query or not query.strip():
+        return False
+    q = query.lower().strip()
+    q = re.sub(r"[^\w\s]", "", q)
+    joined = " ".join(q.split())
+    temporal_patterns = [
+        r"^que dia (e|é) hoje$",
+        r"^hoje (e|é) que dia$",
+        r"^qual (a|é a|e a) data (de hoje|atual)$",
+        r"^qual data (e|é) hoje$",
+        r"^que data (e|é) hoje$",
+        r"^qual (o|é o|e o) dia (de hoje|atual)$",
+        r"^(em )?que dia estamos$",
+        r"^que dia do mes (e|é) hoje$",
+        r"^qual e a data de hoje$",
+    ]
+    for pat in temporal_patterns:
+        if re.search(pat, joined):
+            return True
+    return False
 
 
 GATEKEEPER_SYSTEM_PROMPT = """Você é o classificador de intenções do News Summarizer.
@@ -95,6 +120,9 @@ class GatekeeperService:
         msg_lower = msg_clean.lower()
 
         # Guardrails heurísticos rápidos (Fail-Fast pré-LLM para economia de ciclos)
+        if is_temporal_system_query(msg_clean):
+            return NewsIntentType.FACTUAL_QUERY
+
         human_indicators = ["falar com humano", "operador humano", "atendente", "intervenção manual", "ajuste a regra"]
         if any(h in msg_lower for h in human_indicators):
             return NewsIntentType.HUMAN_INTERVENTION

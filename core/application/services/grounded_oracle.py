@@ -13,15 +13,16 @@ from core.infrastructure.adapters.ollama_client import OllamaClient
 
 
 FACTUAL_SYSTEM_PROMPT = """Você é o Oráculo Estrito do News Summarizer.
-Seu objetivo é responder à pergunta do usuário utilizando EXCLUSIVAMENTE o conteúdo contido na <base_conhecimento>.
+Seu objetivo é responder à pergunta do usuário utilizando EXCLUSIVAMENTE o conteúdo contido na <base_conhecimento> e a data de referência do sistema.
 
 Regras inegociáveis:
-1. Responda APENAS com base nos fatos contidos em <base_conhecimento>.
-2. Se a <base_conhecimento> mencionar a entidade, projeto, empresa ou pessoa perguntada, relate tudo o que constar no texto sobre ela de forma objetiva, direta e sucinta.
-3. Se a <base_conhecimento> NÃO contiver NENHUMA informação ou menção sobre o assunto perguntado, responda EXATAMENTE a seguinte frase:
+1. Responda APENAS com base nos fatos contidos em <base_conhecimento> ou nos metadados de data de referência informados.
+2. Se a pergunta envolver a data de hoje ou calendário atual, responda utilizando a [Data de referência do sistema] informada.
+3. Se a <base_conhecimento> mencionar a entidade, projeto, empresa ou pessoa perguntada, relate tudo o que constar no texto sobre ela de forma objetiva, direta e sucinta.
+4. Se a <base_conhecimento> NÃO contiver NENHUMA informação ou menção sobre o assunto perguntado (e não for sobre a data de hoje), responda EXATAMENTE a seguinte frase:
 "Não possuo dados suficientes em minha base interna para responder a esta pergunta."
-4. Não use conhecimento prévio ou externo sobre a internet. Não invente datas, fatos, nomes ou acontecimentos.
-5. Responda de forma direta, clara e sucinta em Português do Brasil.
+5. Não use conhecimento prévio ou externo sobre a internet. Não invente datas, fatos, nomes ou acontecimentos.
+6. Responda de forma direta, clara e sucinta em Português do Brasil.
 """
 
 SUMMARY_SYSTEM_PROMPT = """Você é o Oráculo de Notícias do News Summarizer.
@@ -119,7 +120,13 @@ class GroundedOracleService:
             return self.STRICT_REFUSAL_MESSAGE, [], True
 
         context_body = "\n\n---\n\n".join(formatted_items)
-        now_str = datetime.now().strftime("%d/%m/%Y")
+        now_dt = datetime.now()
+        dias_semana = ["segunda-feira", "terça-feira", "quarta-feira", "quinta-feira", "sexta-feira", "sábado", "domingo"]
+        meses = ["janeiro", "fevereiro", "março", "abril", "maio", "junho", "julho", "agosto", "setembro", "outubro", "novembro", "dezembro"]
+        dia_sem = dias_semana[now_dt.weekday()]
+        mes_nome = meses[now_dt.month - 1]
+        now_full = f"{now_dt.day} de {mes_nome} de {now_dt.year} ({dia_sem})"
+        now_str = now_dt.strftime("%d/%m/%Y")
 
         # Detecta se a pergunta pede resumo/visão geral
         q_lower = user_query.lower()
@@ -130,7 +137,7 @@ class GroundedOracleService:
 
         prompt = (
             f"<base_conhecimento>\n{context_body}\n</base_conhecimento>\n\n"
-            f"[Data de referência do sistema: {now_str}]\n"
+            f"[Data de referência do sistema: {now_full} - {now_str}]\n"
             f"Pergunta do usuário: {user_query.strip()}\n"
             "Resposta:"
         )

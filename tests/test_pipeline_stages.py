@@ -60,6 +60,13 @@ class TestGatekeeperService:
         assert intent == NewsIntentType.TRENDS_SUMMARY
         mock_client.generate.assert_not_called()
 
+    def test_heuristic_guardrail_temporal_bypass_llm(self, mock_client):
+        service = GatekeeperService(client=mock_client)
+        assert service.classify("que dia é hoje?") == NewsIntentType.FACTUAL_QUERY
+        assert service.classify("qual a data de hoje") == NewsIntentType.FACTUAL_QUERY
+        assert service.classify("que data é hoje?") == NewsIntentType.FACTUAL_QUERY
+        mock_client.generate.assert_not_called()
+
     def test_fallback_on_malformed_json(self, mock_client):
         mock_client.generate.return_value = '{"intent": "QUEBRADO'
         service = GatekeeperService(client=mock_client)
