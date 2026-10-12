@@ -1,7 +1,7 @@
 {
     "positive": {
         "rust": 2.0,
-        "go": 2.0,
+        "golang": 2.0,
         "arquitetura": 2.0,
         "startups": 1.5,
         "tecnologia": 1.5,

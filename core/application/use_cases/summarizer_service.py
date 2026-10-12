@@ -16,6 +16,7 @@ from core.fsm.states import SystemState
 from core.inference.ollama_agent import OllamaMasterAgent, OllamaSummarizerAgent
 from core.persistence.chroma_adapter import ChromaDBAdapter
 from core.persistence.parquet_store import ParquetStore
+from core.filters.bayesian import BayesianFilter
 
 logger = logging.getLogger(__name__)
 
@@ -30,11 +31,13 @@ class SummarizerService:
         summarizer_agent: Optional[OllamaSummarizerAgent] = None,
         master_agent: Optional[OllamaMasterAgent] = None,
         model_name: str = "llama3.2",
+        bayesian_filter: Optional[BayesianFilter] = None,
     ) -> None:
         self.parquet_store = parquet_store or ParquetStore("data/parquet")
         self.semantic_memory = semantic_memory or ChromaDBAdapter("data/chroma")
         self.summarizer_agent = summarizer_agent or OllamaSummarizerAgent(model_name=model_name)
         self.master_agent = master_agent or OllamaMasterAgent(model_name=model_name)
+        self.bayesian_filter = bayesian_filter or BayesianFilter("vocabulary_seed.json")
 
     def run(
         self,
@@ -59,6 +62,14 @@ class SummarizerService:
             }
 
         total_pending = len(articles)
+
+        # Prioriza no topo os artigos com maior relevância analítica (Score Bayesiano)
+        if self.bayesian_filter:
+            articles.sort(
+                key=lambda a: self.bayesian_filter.score_article(f"{a.get('title', '')} {a.get('content', '')}"),
+                reverse=True,
+            )
+
         if limit is not None and limit > 0:
             articles = articles[:limit]
 

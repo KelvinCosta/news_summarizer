@@ -17,7 +17,7 @@ class BayesianFilter:
                 shutil.copy(example_file, self.seed_file)
             else:
                 default_seed = {
-                    "positive": {"rust": 2.0, "go": 2.0, "arquitetura": 2.0, "startups": 1.5, "tecnologia": 1.5, "ai": 2.0},
+                    "positive": {"rust": 2.0, "golang": 2.0, "arquitetura": 2.0, "startups": 1.5, "tecnologia": 1.5, "ai": 2.0},
                     "negative": {"fofoca": -2.0, "celebridade": -2.0, "horóscopo": -2.0, "astrologia": -2.0, "crime": -1.5}
                 }
                 with open(self.seed_file, 'w') as f:
