@@ -283,3 +283,34 @@ class ParquetStore:
         df_filtered = df.filter(pl.col("date_str") == target_date)
         
         return df_filtered.sort("processed_at", descending=False).to_dicts()
+
+    def search_summaries_by_keyword(self, keyword: str, limit: int = 10) -> List[dict]:
+        """Busca sumários que contenham o termo de busca no título ou no resumo (case-insensitive)."""
+        if not self.summaries_path.exists() or not keyword or not keyword.strip():
+            return []
+        df = pl.read_parquet(self.summaries_path)
+        if df.height == 0:
+            return []
+        kw = keyword.strip().lower()
+        filtered = df.filter(
+            pl.col("title").str.to_lowercase().str.contains(kw, literal=True)
+            | pl.col("summary").str.to_lowercase().str.contains(kw, literal=True)
+        )
+        if filtered.height == 0:
+            return []
+        return filtered.sort("processed_at", descending=True).head(limit).to_dicts()
+
+    def search_bulletins_by_keyword(self, keyword: str, limit: int = 5) -> List[dict]:
+        """Busca boletins que contenham a palavra-chave no conteúdo (case-insensitive)."""
+        if not self.bulletins_path.exists() or not keyword or not keyword.strip():
+            return []
+        df = pl.read_parquet(self.bulletins_path)
+        if df.height == 0:
+            return []
+        kw = keyword.strip().lower()
+        filtered = df.filter(
+            pl.col("content").str.to_lowercase().str.contains(kw, literal=True)
+        )
+        if filtered.height == 0:
+            return []
+        return filtered.sort("processed_at", descending=True).head(limit).to_dicts()

@@ -14,6 +14,7 @@ from uuid import uuid4
 from core.application.services.gatekeeper import GatekeeperService
 from core.application.services.query_extractor import QueryExtractorService
 from core.application.services.grounded_oracle import GroundedOracleService
+from core.application.services.hybrid_retriever import HybridRetrieverService
 from core.domain.models.events import (
     ContextRetrieved,
     DomainEvent,
@@ -60,6 +61,7 @@ class FSMOrchestrator:
         gatekeeper: Optional[GatekeeperService] = None,
         query_extractor: Optional[QueryExtractorService] = None,
         oracle_service: Optional[GroundedOracleService] = None,
+        retriever: Optional[HybridRetrieverService] = None,
     ) -> None:
         """Inicializa o orquestrador com injeção de dependências desacopladas."""
         self.current_state: SystemState = SystemState.IDLE
@@ -74,6 +76,10 @@ class FSMOrchestrator:
         self._query_extractor = query_extractor or QueryExtractorService(client=self._client)
         self._oracle_service = oracle_service or GroundedOracleService(
             memory=self._semantic_memory, client=self._client
+        )
+        self._retriever = retriever or HybridRetrieverService(
+            semantic_memory=self._semantic_memory,
+            parquet_store=self._parquet_store,
         )
 
     @property
@@ -272,23 +278,29 @@ class FSMOrchestrator:
         events.append(filter_event)
         self._event_store.append(filter_event)
 
-        # Estágio 3: Recuperação de contexto na memória semântica
+        # Estágio 3: Recuperação Híbrida de Contexto (Léxico + Vetorial + Reranking)
         self.transition_to(SystemState.RETRIEVING_CONTEXT)
-        limit = filters.limite if filters.limite else 4
-
-        # Estágio 4: Inferência e Validação Factual Grounded
-        self.transition_to(SystemState.INFERENCING)
-        response_text, contexts, is_refusal = self._oracle_service.answer(
-            user_message, limit=limit
+        limit = filters.limite if filters.limite else 5
+        contexts = self._retriever.retrieve(
+            query=user_message,
+            filters=filters,
+            limit=limit,
         )
 
         retrieval_event = ContextRetrieved(
             session_id=session_id,
             result_count=len(contexts),
-            strategy="hippocampus_rag",
+            strategy="hybrid_rag",
         )
         events.append(retrieval_event)
         self._event_store.append(retrieval_event)
+
+        # Estágio 4: Inferência e Validação Factual Grounded
+        self.transition_to(SystemState.INFERENCING)
+        response_text, retrieved_contexts, is_refusal = self._oracle_service.answer(
+            user_message,
+            provided_contexts=contexts,
+        )
 
         self.transition_to(SystemState.VALIDATING)
         if is_refusal:
@@ -316,7 +328,7 @@ class FSMOrchestrator:
             response=response_text,
             intent=NewsIntentType.FACTUAL_QUERY,
             events=events,
-            contexts=contexts,
+            contexts=retrieved_contexts,
             handoff_triggered=is_refusal,
             handoff_reason="no_data" if is_refusal else None,
         )
