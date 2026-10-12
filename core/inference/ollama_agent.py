@@ -22,13 +22,17 @@ class OllamaSummarizerAgent:
 
     def summarize(self, text: str) -> Optional[str]:
         prompt = (
-            "Resuma a seguinte notícia em no máximo 3 parágrafos, extraindo os pontos principais. "
-            "Responda em Português do Brasil.\n\n"
-            f"Notícia:\n{text}"
+            "Extraia os fatos desta notícia em até 3 parágrafos objetivos no padrão jornalístico brasileiro.\n\n"
+            "DIRETRIZES DE EXTRAÇÃO:\n"
+            "1. Identifique claramente os sujeitos, as empresas ou entidades citadas e as ações que realizaram.\n"
+            "2. Se a notícia relatar um crime, golpe ou fraude cometida por terceiros, deixe claro quem é o autor e quem é a vítima/empresa afetada.\n"
+            "3. Se for uma newsletter com vários temas curtos, resuma apenas as notícias principais sobre tecnologia e IA.\n"
+            "4. Responda em Português do Brasil de forma direta, sem introduções vazias como 'Aqui está o resumo'.\n\n"
+            f"TEXTO DA NOTÍCIA:\n{text}"
         )
         system_instruction = (
-            "Você é um assistente hiper-especializado em sumarizar dados e remover ruídos, "
-            "seguindo princípios on-premise estritos. Produza resumos curtos e diretos."
+            "Você é um extrator de inteligência jornalística de alta precisão. "
+            "Sua função é transformar artigos brutos em fatos claros e objetivos com atribuição correta."
         )
         try:
             response = self._client.generate(
@@ -61,27 +65,24 @@ class OllamaMasterAgent:
     def generate_global_bulletin(self, summaries: List[str]) -> Optional[str]:
         context = "\n\n---\n\n".join(summaries)
         prompt = (
-            "Abaixo estão resumos de notícias recentes capturadas por diferentes veículos.\n"
-            "Sua tarefa como Analista Chefe de Inteligência é produzir um Boletim Diário Consolidado "
-            "em Português, combinando a síntese executiva dos fatos com um radar ativo de veracidade.\n\n"
-            "ESTRUTURA OBRIGATÓRIA (Markdown):\n"
-            "# 📰 BOLETIM DIÁRIO GLOBAL: INTELIGÊNCIA & MERCADO\n\n"
-            "## 🚀 Destaques Principais & Tendências Tecnológicas\n"
-            "- Conecte as notícias sólidas apuradas (avanços em IA, decisões de Big Techs, finanças, infraestrutura);\n"
-            "- Destaque os fatos mais relevantes em tópicos estruturados e bem explicados.\n\n"
-            "## ⚠️ Radar de Veracidade & Alertas de Desinformação\n"
-            "- Examine criticamente os resumos: aponte boatos, golpes com IA, notícias duvidosas, sensacionalismo "
-            "ou alegações que exigem cautela ou checagem independente;\n"
-            "- Se todas as notícias forem comprovadas e consistentes, informe explicitamente que nenhuma anomalia foi detectada.\n\n"
-            "## 💡 Conclusão & Panorama Estratégico\n"
-            "- Um parágrafo executivo sintetizando o impacto dos acontecimentos do dia.\n\n"
-            f"RESUMOS APURADOS:\n{context}"
+            "Com base estritamente nos resumos jornalísticos abaixo, componha o Boletim Diário de Inteligência Tecnológica.\n\n"
+            "REGRAS DE CONDICIONAMENTO:\n"
+            "1. ANCORAGEM NO CONTEXTO: Todos os dados abaixo são notícias reais e recentes apuradas pela imprensa. Nunca classifique as notícias como falsas nem as refute com base em conhecimentos prévios.\n"
+            "2. ATRIBUIÇÃO JORNALÍSTICA: Sempre que citar declarações ou propostas mencione como uma declaração pública reportada pelos veículos de imprensa.\n"
+            "3. ESTRUTURA DO BOLETIM (Siga rigidamente este padrão Markdown):\n\n"
+            "# 📰 BOLETIM DIÁRIO: INTELIGÊNCIA TECNOLÓGICA & MERCADO\n\n"
+            "## 🚀 Destaques Principais & Tendências\n"
+            "(Apresente as 3 a 5 principais notícias do dia em tópicos com negrito no título e explicação concisa do fato)\n\n"
+            "## ⚠️ Radar Crítico & Riscos Reportados\n"
+            "(Aponte aqui fraudes, golpes com IA, declarações controversas ou desafios regulatórios relatados nas notícias. Se não houver relatos de risco, escreva: 'Nenhum risco ou fraude tecnológica reportada neste lote.')\n\n"
+            "## 💡 Conclusão Executiva\n"
+            "(Parágrafo final de 3 a 4 linhas sintetizando o impacto dos acontecimentos no mercado.)\n\n"
+            f"RESUMOS DAS FONTES:\n{context}"
         )
         system_instruction = (
-            "Você é o Orquestrador Chefe de Notícias e Inteligência de Mercado. "
-            "Você possui pensamento crítico aguçado: separa fatos sólidos do ecossistema de tecnologia "
-            "de alegações duvidosas, golpes, sensacionalismo ou desinformação. "
-            "Apresente sempre o briefing de forma profissional, equilibrada e em Português."
+            "Você é o Editor-Chefe de Inteligência Executiva de Tecnologia. "
+            "Você redige boletins analíticos e concisos em Português corporativo, baseando-se estritamente no material fornecido, "
+            "com postura séria, imparcial e sem emitir opiniões pessoais de debunker."
         )
         try:
             response = self._client.generate(
@@ -101,17 +102,16 @@ class OllamaMasterAgent:
         """Lê os vários boletins de um dia e funde num Mega-Boletim Final."""
         context = "\n\n=== BOLETIM PARCIAL ===\n\n".join(bulletins_content)
         prompt = (
-            f"Abaixo estão os relatórios parciais gerados durante o dia {date_str}.\n"
-            "Escreva o **Sumário Geral Definitivo do Dia**. Conecte as notícias de forma inteligente, "
-            "elimine duplicatas entre os relatórios parciais, destaque as notícias mais importantes, "
-            "mantenha uma seção dedicada de **Radar de Veracidade & Alertas de Desinformação** para os pontos duvidosos identificados, "
-            "e crie uma conclusão fechando as tendências do dia.\n"
-            "Use Markdown e estruture bem o texto para leitura executiva.\n\n"
-            f"RELATÓRIOS PARCIAIS:\n{context}"
+            f"Consolide os relatórios parciais do dia {date_str} em um único Mega-Boletim Executivo Definitivo.\n\n"
+            "REGRAS:\n"
+            "1. Elimine redundâncias entre as sessões parciais e selecione os fatos de maior impacto.\n"
+            "2. Mantenha as seções: Destaques Principais, Radar Crítico & Riscos Reportados, e Conclusão Executiva.\n"
+            "3. Redija em Português profissional estruturado em Markdown, sem refutar notícias apuradas pelas fontes.\n\n"
+            f"RELATÓRIOS DO DIA:\n{context}"
         )
         system_instruction = (
-            "Você é o Orquestrador Chefe de Notícias (Agente Master Definitivo). Sua função é consolidar "
-            "múltiplos boletins diários em um único mega-relatório executivo em Português com síntese de mercado e radar crítico."
+            "Você é o Editor-Chefe Definitivo de Inteligência de Mercado. Sua função é fundir múltiplos relatórios diários "
+            "em um sumário executivo conciso, de leitura rápida e alto valor analítico."
         )
         try:
             response = self._client.generate(
