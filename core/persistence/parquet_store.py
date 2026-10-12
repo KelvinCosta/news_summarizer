@@ -124,6 +124,15 @@ class ParquetStore:
         df_sorted = df.sort("processed_at", descending=True)
         return df_sorted.head(limit).to_dicts()
 
+    def get_all_summaries(self) -> List[dict]:
+        """Recupera todos os resumos processados ordenados por data decrescente."""
+        if not self.summaries_path.exists():
+            return []
+        df = pl.read_parquet(self.summaries_path)
+        if df.height == 0:
+            return []
+        return df.sort("processed_at", descending=True).to_dicts()
+
     def get_unsummarized_articles(self) -> List[dict]:
         """Retorna todos os artigos brutos que ainda não possuem um resumo associado."""
         if not self.file_path.exists():

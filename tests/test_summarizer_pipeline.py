@@ -117,14 +117,68 @@ class TestSummarizerPipeline:
         assert "<b>" not in prompt
         assert len(prompt) < 5500
 
-    def test_ollama_master_agent_daily_consolidation(self):
-        mock_client = MagicMock()
-        mock_client.generate.return_value = "Mega Boletim Consolidado."
-        master = OllamaMasterAgent(client=mock_client)
+    def test_run_indexing_without_bulletin(self, mock_env):
+        service, store, memory, summarizer_agent, master_agent = mock_env
 
-        res = master.generate_daily_master(["Boletim 1", "Boletim 2"], "2026-10-12")
-        assert res == "Mega Boletim Consolidado."
-        mock_client.generate.assert_called_once()
+        store.append([
+            Article(
+                url="https://tech.com/article1",
+                title="Novo processador quântico",
+                content="Conteúdo longo do artigo sobre computação quântica.",
+                published_at=datetime.now(timezone.utc),
+                source="TechSource",
+            )
+        ])
+
+        summarizer_agent.summarize.return_value = "Resumo executivo do processador."
+
+        result = service.run(generate_bulletin=False)
+
+        assert result["status"] == "success"
+        assert result["processed_count"] == 1
+        assert result["bulletin"] is None
+        summarizer_agent.summarize.assert_called_once()
+        memory.store_individual_summary.assert_called_once()
+        master_agent.generate_global_bulletin.assert_not_called()
+
+        # Verifica persistência no Parquet
+        summaries = store.get_all_summaries()
+        assert len(summaries) == 1
+        bulletins = store.get_all_bulletins()
+        assert len(bulletins) == 0
+
+    def test_generate_top_bulletin(self, mock_env):
+        service, store, memory, summarizer_agent, master_agent = mock_env
+
+        # Insere artigo e resumo no Parquet
+        store.append([
+            Article(
+                url="https://tech.com/ai_super",
+                title="Super Inteligência e IA",
+                content="Conteúdo sobre IA e modelos.",
+                published_at=datetime.now(timezone.utc),
+                source="TechSource",
+            )
+        ])
+        summarizer_agent.summarize.return_value = "Resumo sobre IA e tecnologia."
+        service.run(generate_bulletin=False)
+
+        master_agent.generate_global_bulletin.return_value = "📰 Boletim Top 10 Consolidado."
+
+        result = service.generate_top_bulletin(top_k=5)
+
+        assert result["status"] == "success"
+        assert "Boletim Top 10" in result["bulletin"]
+        assert result["count"] == 1
+        master_agent.generate_global_bulletin.assert_called_once()
+        assert len(store.get_all_bulletins()) == 1
+
+    def test_generate_top_bulletin_empty(self, mock_env):
+        service, store, memory, summarizer_agent, master_agent = mock_env
+        result = service.generate_top_bulletin(top_k=10)
+        assert result["status"] == "empty"
+        assert result["bulletin"] is None
+
 
 
 

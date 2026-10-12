@@ -44,12 +44,15 @@ class SummarizerService:
         self,
         limit: Optional[int] = None,
         progress_callback: Optional[Callable[[int, int, str], None]] = None,
+        generate_bulletin: bool = True,
     ) -> dict:
         """Executa a esteira Map-Reduce sobre os artigos não resumidos.
 
         Args:
             limit: Limite opcional de artigos a processar nesta rodada (evita bloqueios prolongados).
             progress_callback: Callback opcional de progresso (indice_atual, total_lote, titulo).
+            generate_bulletin: Se True, executa a Fase 3 (REDUCE) consolidando o boletim do lote.
+                               Se False, apenas resume e indexa no Parquet e ChromaDB.
         """
         articles = self.parquet_store.get_unsummarized_articles()
 
@@ -144,6 +147,15 @@ class SummarizerService:
             except Exception as e:
                 logger.warning(f"Aviso ao indexar resumos no ChromaDB: {e}")
 
+        # Se não foi solicitada a geração de boletim, encerra aqui (modo Indexação Pura)
+        if not generate_bulletin:
+            return {
+                "status": "success",
+                "processed_count": len(summarized_objects),
+                "bulletin": None,
+                "summaries": summarized_objects,
+            }
+
         # FASE 3: REDUCE (Boletim Global)
         logger.info("--- FASE 3: REDUCE (Boletim Global com Agente Master) ---")
         summary_texts = [s.summary for s in summarized_objects]
@@ -164,5 +176,53 @@ class SummarizerService:
             "processed_count": len(summarized_objects),
             "bulletin": global_bulletin,
             "summaries": summarized_objects,
+        }
+
+    def generate_top_bulletin(self, top_k: int = 10) -> dict:
+        """Gera um Boletim Estratégico consolidando as 'top_k' notícias de maior peso analítico (Naive Bayes)."""
+        summaries = self.parquet_store.get_all_summaries()
+        if not summaries:
+            return {
+                "status": "empty",
+                "message": "Nenhum resumo encontrado no banco de dados. Execute a opção de indexação primeiro.",
+                "bulletin": None,
+                "articles_used": [],
+            }
+
+        # Deduplica por URL para evitar artigos duplicados no mesmo boletim
+        seen_urls = set()
+        unique_summaries = []
+        for s in summaries:
+            url = s.get("original_url")
+            if url and url not in seen_urls:
+                seen_urls.add(url)
+                unique_summaries.append(s)
+
+        # Ranqueia pelo score Bayesiano (pondera título + texto do resumo)
+        if self.bayesian_filter:
+            unique_summaries.sort(
+                key=lambda s: self.bayesian_filter.score_article(f"{s.get('title', '')} {s.get('summary', '')}"),
+                reverse=True,
+            )
+
+        top_articles = unique_summaries[:top_k]
+        summary_texts = [s["summary"] for s in top_articles]
+
+        logger.info(f"Gerando Boletim com as Top {len(top_articles)} notícias de maior peso...")
+        global_bulletin = self.master_agent.generate_global_bulletin(summary_texts)
+
+        if global_bulletin:
+            bulletin_obj = GlobalBulletin(
+                content=global_bulletin,
+                processed_at=datetime.now(timezone.utc),
+            )
+            self.parquet_store.append_bulletin(bulletin_obj)
+            logger.info("Boletim das Top notícias salvo em 'bulletins.parquet'.")
+
+        return {
+            "status": "success" if global_bulletin else "failed",
+            "bulletin": global_bulletin,
+            "articles_used": top_articles,
+            "count": len(top_articles),
         }
 
