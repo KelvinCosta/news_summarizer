@@ -38,7 +38,10 @@ class RSSParser:
         timeout_seconds: float = 7.0,
     ) -> None:
         # Higieniza URLs removendo espaços em branco acidentais
-        self.feeds = [f.strip() for f in feeds if f and f.strip()]
+        self.feeds = [
+            f.replace("https: //", "https://").replace("http: //", "http://").strip()
+            for f in feeds if f and f.strip()
+        ]
         self.max_workers = max(1, min(max_workers, 32))
         self.timeout_seconds = timeout_seconds
 
