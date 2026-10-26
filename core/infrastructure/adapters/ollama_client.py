@@ -28,7 +28,7 @@ class OllamaClient:
     """Cliente HTTP puro para invocação da API de geração e embeddings do Ollama."""
 
     DEFAULT_BASE_URL: str = "http://localhost:11434"
-    DEFAULT_MODEL: str = "llama3.2"
+    DEFAULT_MODEL: str = os.getenv("OLLAMA_MODEL", "llama3.2")
 
     def __init__(
         self,
@@ -92,7 +92,7 @@ class OllamaClient:
         Raises:
             OllamaClientError: Em caso de falha de conexão, timeout ou status HTTP de erro.
         """
-        target_model = model or self.DEFAULT_MODEL
+        target_model = model or os.getenv("OLLAMA_MODEL", self.DEFAULT_MODEL)
         payload: dict[str, Any] = {
             "model": target_model,
             "prompt": prompt,

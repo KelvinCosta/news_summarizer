@@ -9,6 +9,7 @@ Fase 2 (REDUCE): Sintetiza o Boletim Diário Global a partir dos resumos
 from datetime import datetime, timezone
 import hashlib
 import logging
+import os
 import time
 from typing import Callable, List, Optional
 
@@ -32,13 +33,14 @@ class SummarizerService:
         semantic_memory: Optional[ISemanticMemory] = None,
         summarizer_agent: Optional[OllamaSummarizerAgent] = None,
         master_agent: Optional[OllamaMasterAgent] = None,
-        model_name: str = "llama3.2",
+        model_name: Optional[str] = None,
         bayesian_filter: Optional[BayesianFilter] = None,
     ) -> None:
+        target_model = model_name or os.getenv("OLLAMA_MODEL", "llama3.2")
         self.parquet_store = parquet_store or ParquetStore("data/parquet")
         self.semantic_memory = semantic_memory or ChromaDBAdapter("data/chroma")
-        self.summarizer_agent = summarizer_agent or OllamaSummarizerAgent(model_name=model_name)
-        self.master_agent = master_agent or OllamaMasterAgent(model_name=model_name)
+        self.summarizer_agent = summarizer_agent or OllamaSummarizerAgent(model_name=target_model)
+        self.master_agent = master_agent or OllamaMasterAgent(model_name=target_model)
         self.bayesian_filter = bayesian_filter or BayesianFilter("vocabulary_seed.json")
 
     def run(

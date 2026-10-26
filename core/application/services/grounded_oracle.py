@@ -6,6 +6,7 @@ blindadas contra alucinações.
 """
 
 from datetime import datetime
+import os
 from typing import Any, Dict, List, Optional
 from core.domain.models.intents import NewsIntentType
 from core.domain.ports import ISemanticMemory
@@ -48,11 +49,11 @@ class GroundedOracleService:
         self,
         memory: Optional[ISemanticMemory] = None,
         client: Optional[OllamaClient] = None,
-        model: str = "llama3.2",
+        model: Optional[str] = None,
     ) -> None:
         self._memory = memory
         self._client = client or OllamaClient()
-        self._model = model
+        self._model = model or os.getenv("OLLAMA_MODEL", "llama3.2")
 
     @property
     def model(self) -> str:

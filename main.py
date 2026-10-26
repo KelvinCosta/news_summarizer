@@ -55,9 +55,10 @@ class NewsSummarizerApp:
         )
 
     def print_header(self) -> None:
+        active_model = os.getenv("OLLAMA_MODEL", "llama3.2")
         print("\n" + "=" * 75)
         print("  📰 NEWS SUMMARIZER - Inteligência Autônoma de Notícias (SLM On-Premise)")
-        print("  Arquitetura em Estágios, Clean Pipeline, CQRS & Event Sourcing")
+        print(f"  Modelo SLM Ativo: {active_model} | Clean Pipeline, CQRS & Event Sourcing")
         print("=" * 75)
 
     def print_menu(self) -> None:

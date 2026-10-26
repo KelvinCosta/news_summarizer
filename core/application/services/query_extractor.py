@@ -5,6 +5,7 @@ garantindo integridade de tipos, restrições e higienização prévia à consul
 """
 
 import json
+import os
 from typing import Optional
 from pydantic import ValidationError
 
@@ -49,10 +50,10 @@ class QueryExtractorService:
     def __init__(
         self,
         client: Optional[OllamaClient] = None,
-        model: str = "llama3.2",
+        model: Optional[str] = None,
     ) -> None:
         self._client = client or OllamaClient()
-        self._model = model
+        self._model = model or os.getenv("OLLAMA_MODEL", "llama3.2")
 
     @property
     def model(self) -> str:

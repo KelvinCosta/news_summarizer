@@ -4,6 +4,7 @@ Conectam-se ao Ollama via OllamaClient HTTP puro desacoplado,
 permitindo injeção de dependência e testes unitários determinísticos.
 """
 
+import os
 import re
 from typing import List, Optional
 
@@ -15,10 +16,10 @@ class OllamaSummarizerAgent:
 
     def __init__(
         self,
-        model_name: str = "llama3.2",
+        model_name: Optional[str] = None,
         client: Optional[OllamaClient] = None,
     ) -> None:
-        self.model_name = model_name
+        self.model_name = model_name or os.getenv("OLLAMA_MODEL", "llama3.2")
         self._client = client or OllamaClient()
 
     def summarize(self, text: str) -> Optional[str]:
@@ -63,10 +64,10 @@ class OllamaMasterAgent:
 
     def __init__(
         self,
-        model_name: str = "llama3.2",
+        model_name: Optional[str] = None,
         client: Optional[OllamaClient] = None,
     ) -> None:
-        self.model_name = model_name
+        self.model_name = model_name or os.getenv("OLLAMA_MODEL", "llama3.2")
         self._client = client or OllamaClient()
 
     def generate_global_bulletin(self, summaries: List[str]) -> Optional[str]:
