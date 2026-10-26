@@ -66,12 +66,14 @@ class IngestionService:
         bayesian_filter: Optional[BayesianFilter] = None,
         event_store: Optional[ImmutableEventStore] = None,
         feeds: Optional[List[str]] = None,
+        threshold: float = 0.5,
     ) -> None:
         self.parquet_store = parquet_store or ParquetStore("data/parquet")
         self.lexical_filter = lexical_filter or LexicalFilter(tolerance=3)
         self.bayesian_filter = bayesian_filter or BayesianFilter("vocabulary_seed.json")
         self.event_store = event_store or ImmutableEventStore()
         self.feeds = feeds or load_configured_feeds()
+        self.threshold = threshold
 
     def run(
         self,
@@ -139,7 +141,7 @@ class IngestionService:
             # B. Filtro Bayesiano (Naive Bayes)
             full_text = f"{article.content} {article.title}"
             score = self.bayesian_filter.score_article(full_text)
-            if not self.bayesian_filter.is_relevant(full_text, threshold=1.0):
+            if not self.bayesian_filter.is_relevant(full_text, threshold=self.threshold):
                 discarded_irrelevant += 1
                 logger.warning(
                     f"[{SystemState.DISCARDED_IRRELEVANT.value}] Descartado (Irrelevante/Score {score}): {article.title}"
