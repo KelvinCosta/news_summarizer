@@ -211,3 +211,48 @@ class TestFSMOrchestrator:
         assert not res_atu.handoff_triggered
         assert "Notícia Super Recente" in res_atu.response
 
+    def test_multi_turn_conversational_memory_and_query_contextualization(
+        self, mock_gatekeeper, mock_extractor, mock_oracle, mock_memory
+    ):
+        mock_gatekeeper.classify.return_value = NewsIntentType.FACTUAL_QUERY
+        mock_extractor.extract.return_value = NewsFilterSchema(topico="Interpol", limite=3)
+        mock_extractor.contextualize_query.return_value = "Quais países foram afetados pela Operação da Interpol na África?"
+        mock_oracle.answer.return_value = (
+            "A operação atingiu 21 países com 1.462 prisões, destacando Angola.",
+            [{"content": "Trecho da operação da Interpol"}],
+            False,
+        )
+        mock_oracle.model = "qwen2.5:14b"
+
+        event_store = ImmutableEventStore()
+        orchestrator = FSMOrchestrator(
+            semantic_memory=mock_memory,
+            event_store=event_store,
+            gatekeeper=mock_gatekeeper,
+            query_extractor=mock_extractor,
+            oracle_service=mock_oracle,
+        )
+
+        session_id = "test-multi-turn-session"
+
+        # Turno 1
+        res1 = orchestrator.handle_message("uma operacao na Africa? o que aconteceu?", session_id=session_id)
+        assert res1.intent == NewsIntentType.FACTUAL_QUERY
+        hist1 = orchestrator.get_session_history(session_id)
+        assert len(hist1) == 2
+        assert hist1[0]["role"] == "user"
+        assert hist1[1]["role"] == "assistant"
+
+        # Turno 2 (Continuação com anáfora)
+        res2 = orchestrator.handle_message("quais foram os países afetados?", session_id=session_id)
+        assert res2.intent == NewsIntentType.FACTUAL_QUERY
+        hist2 = orchestrator.get_session_history(session_id)
+        assert len(hist2) == 4
+
+        # Garante que contextualize_query foi chamado no 2º turno
+        mock_extractor.contextualize_query.assert_called_once()
+
+        # Garante que clear_session reinicia o contexto
+        orchestrator.clear_session(session_id)
+        assert orchestrator.get_session_history(session_id) == []
+

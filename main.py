@@ -389,10 +389,15 @@ class NewsSummarizerApp:
         input("Pressione Enter para voltar à navegação...")
 
     def run_rag_chat(self) -> None:
+        from uuid import uuid4
+
         print("\n" + "=" * 75)
-        print("🧠 Terminal de RAG - Modo Oráculo Estrito (Clean Architecture)")
-        print("Faça perguntas sobre as notícias arquivadas. Digite 'v' para voltar ao menu.")
+        print("🧠 Terminal de RAG - Modo Oráculo Estrito & Conversacional (Clean Architecture)")
+        print("Faça perguntas e continue a conversa sobre as notícias arquivadas.")
+        print("Comandos: [v] Voltar ao menu | [/limpar] Reiniciar histórico da conversa")
         print("=" * 75)
+
+        chat_session_id = str(uuid4())
 
         while True:
             try:
@@ -401,9 +406,13 @@ class NewsSummarizerApp:
                     continue
                 if query.lower() in ["v", "voltar", "q", "sair"]:
                     break
+                if query.lower() in ["/limpar", "/reset", "/novo"]:
+                    chat_session_id = str(uuid4())
+                    print("\n[✓] Contexto e histórico da conversa reiniciados!")
+                    continue
 
                 print(" (Processando pelos 4 estágios do pipeline...)")
-                result = self.orchestrator.handle_message(query)
+                result = self.orchestrator.handle_message(query, session_id=chat_session_id)
 
                 print(f"\nOráculo [{result.intent.value}]:\n{result.response}")
 

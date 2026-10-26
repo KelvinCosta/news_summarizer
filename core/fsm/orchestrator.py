@@ -85,6 +85,15 @@ class FSMOrchestrator:
             semantic_memory=self._semantic_memory,
             parquet_store=self._parquet_store,
         )
+        self._session_histories: Dict[str, List[Dict[str, str]]] = {}
+
+    def clear_session(self, session_id: str) -> None:
+        """Limpa o histórico de conversa de uma sessão."""
+        self._session_histories.pop(session_id, None)
+
+    def get_session_history(self, session_id: str) -> List[Dict[str, str]]:
+        """Retorna o histórico de mensagens da sessão."""
+        return list(self._session_histories.get(session_id, []))
 
     @property
     def event_store(self) -> ImmutableEventStore:
@@ -259,6 +268,12 @@ class FSMOrchestrator:
         self.transition_to(SystemState.COMPLETED)
         self.transition_to(SystemState.IDLE)
 
+        session_history = self._session_histories.setdefault(session_id, [])
+        session_history.append({"role": "user", "content": user_message})
+        session_history.append({"role": "assistant", "content": response_text})
+        if len(session_history) > 8:
+            session_history[:] = session_history[-8:]
+
         return OrchestratorResult(
             session_id=session_id,
             response=response_text,
@@ -357,6 +372,7 @@ class FSMOrchestrator:
         contexts: List[Dict[str, Any]],
         strategy: str,
         events: List[DomainEvent],
+        user_message: str = "",
     ) -> OrchestratorResult:
         """Constrói deterministamente o resultado da FSM para meta-consultas do sistema (Zero GPU)."""
         self.transition_to(SystemState.RETRIEVING_CONTEXT)
@@ -379,6 +395,13 @@ class FSMOrchestrator:
 
         self.transition_to(SystemState.COMPLETED)
         self.transition_to(SystemState.IDLE)
+
+        if user_message:
+            session_history = self._session_histories.setdefault(session_id, [])
+            session_history.append({"role": "user", "content": user_message})
+            session_history.append({"role": "assistant", "content": response_text})
+            if len(session_history) > 8:
+                session_history[:] = session_history[-8:]
 
         return OrchestratorResult(
             session_id=session_id,
@@ -406,6 +429,7 @@ class FSMOrchestrator:
                 contexts=contexts,
                 strategy="system_clock",
                 events=events,
+                user_message=user_message,
             )
 
         # 2. Verificação rápida de meta-consulta de catálogo (mais recente / mais antiga) (Zero GPU)
@@ -418,10 +442,25 @@ class FSMOrchestrator:
                 contexts=contexts,
                 strategy=f"catalog_{catalog_mode}",
                 events=events,
+                user_message=user_message,
             )
 
-        # Estágio 2: Extração de filtros estruturados
-        filters = self._query_extractor.extract(user_message)
+        # Estágio 2: Extração de filtros estruturados (com contextualização se houver histórico)
+        history = self._session_histories.get(session_id, [])
+        search_query = user_message
+        if history and hasattr(self._query_extractor, "contextualize_query"):
+            try:
+                rewritten = self._query_extractor.contextualize_query(
+                    user_message, conversation_history=history
+                )
+                if isinstance(rewritten, str) and rewritten.strip():
+                    search_query = rewritten.strip()
+                    logger.info(f"Busca contextualizada: '{user_message}' -> '{search_query}'")
+            except Exception as e:
+                logger.warning(f"Erro ao contextualizar busca: {e}")
+                search_query = user_message
+
+        filters = self._query_extractor.extract(search_query)
         filter_event = SearchFiltersExtracted(session_id=session_id, filters=filters)
         events.append(filter_event)
         self._event_store.append(filter_event)
@@ -430,10 +469,16 @@ class FSMOrchestrator:
         self.transition_to(SystemState.RETRIEVING_CONTEXT)
         limit = filters.limite if filters.limite else 5
         contexts = self._retriever.retrieve(
-            query=user_message,
+            query=search_query,
             filters=filters,
             limit=limit,
         )
+        if not contexts and search_query != user_message:
+            contexts = self._retriever.retrieve(
+                query=user_message,
+                filters=None,
+                limit=limit,
+            )
 
         retrieval_event = ContextRetrieved(
             session_id=session_id,
@@ -443,11 +488,12 @@ class FSMOrchestrator:
         events.append(retrieval_event)
         self._event_store.append(retrieval_event)
 
-        # Estágio 4: Inferência e Validação Factual Grounded
+        # Estágio 4: Inferência e Validação Factual Grounded com histórico
         self.transition_to(SystemState.INFERENCING)
         response_text, retrieved_contexts, is_refusal = self._oracle_service.answer(
             user_message,
             provided_contexts=contexts,
+            conversation_history=history if history else None,
         )
 
         self.transition_to(SystemState.VALIDATING)
@@ -470,6 +516,12 @@ class FSMOrchestrator:
 
         self.transition_to(SystemState.COMPLETED)
         self.transition_to(SystemState.IDLE)
+
+        session_history = self._session_histories.setdefault(session_id, [])
+        session_history.append({"role": "user", "content": user_message})
+        session_history.append({"role": "assistant", "content": response_text})
+        if len(session_history) > 8:
+            session_history[:] = session_history[-8:]
 
         return OrchestratorResult(
             session_id=session_id,

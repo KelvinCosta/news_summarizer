@@ -93,6 +93,50 @@ class QueryExtractorService:
         except (ValidationError, json.JSONDecodeError, TypeError, ValueError, Exception):
             return NewsFilterSchema()
 
+    def contextualize_query(
+        self,
+        user_message: str,
+        conversation_history: Optional[list[dict[str, str]]] = None,
+    ) -> str:
+        """Reformula perguntas contextuais (com anáforas) em consultas autônomas de busca."""
+        if not conversation_history or not user_message or not user_message.strip():
+            return user_message
+
+        # Pega os últimos 4 turnos (2 interações completas)
+        recent = conversation_history[-4:]
+        history_lines = []
+        for h in recent:
+            role = "Usuário" if h.get("role") == "user" else "Oráculo"
+            content = h.get("content", "").strip()
+            if len(content) > 160:
+                content = content[:160] + "..."
+            history_lines.append(f"{role}: {content}")
+
+        history_str = "\n".join(history_lines)
+
+        prompt = (
+            "Com base no histórico da conversa e na última mensagem do usuário, gere uma consulta de busca autônoma e completa para recuperar notícias relevantes no banco de dados.\n"
+            "Substitua pronomes e referências implícitas (ex: 'e eles?', 'quais países?', 'como assim?') pelo tema ou entidade discutido no histórico.\n"
+            "Se a mensagem já for uma pergunta independente e completa, repita-a.\n"
+            "NÃO responda à pergunta. Retorne estritamente a consulta reescrita em uma única linha, sem aspas.\n\n"
+            f"Histórico:\n{history_str}\n\n"
+            f"Última mensagem: {user_message.strip()}\n"
+            "Busca reformulada:"
+        )
+
+        try:
+            rewritten = self._client.generate(
+                prompt=prompt,
+                model=self._model,
+                require_json=False,
+                system="Você é um especialista em reformulação contextual de consultas para RAG. Retorne apenas a busca textual.",
+                options={"temperature": 0.0},
+            )
+            clean = rewritten.strip().replace('"', '').replace("'", "")
+            return clean if clean else user_message
+        except Exception:
+            return user_message
+
     def __call__(self, user_message: str) -> NewsFilterSchema:
         return self.extract(user_message)
 
