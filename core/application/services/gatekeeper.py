@@ -11,6 +11,7 @@ fallback determinístico de segurança para HUMAN_INTERVENTION.
 """
 
 import json
+import os
 import re
 from typing import Optional
 
@@ -139,11 +140,11 @@ class GatekeeperService:
     def __init__(
         self,
         client: Optional[OllamaClient] = None,
-        model: str = "llama3.2",
+        model: Optional[str] = None,
     ) -> None:
         """Inicializa o Gatekeeper com cliente Ollama e modelo configuráveis."""
         self._client = client or OllamaClient()
-        self._model = model
+        self._model = model or os.getenv("OLLAMA_MODEL", "llama3.2")
 
     @property
     def model(self) -> str:

@@ -6,6 +6,7 @@ blindadas contra alucinações.
 """
 
 from datetime import datetime
+import os
 from typing import Any, Dict, List, Optional
 from core.domain.models.intents import NewsIntentType
 from core.domain.ports import ISemanticMemory
@@ -48,11 +49,11 @@ class GroundedOracleService:
         self,
         memory: Optional[ISemanticMemory] = None,
         client: Optional[OllamaClient] = None,
-        model: str = "llama3.2",
+        model: Optional[str] = None,
     ) -> None:
         self._memory = memory
         self._client = client or OllamaClient()
-        self._model = model
+        self._model = model or os.getenv("OLLAMA_MODEL", "llama3.2")
 
     @property
     def model(self) -> str:
@@ -64,6 +65,7 @@ class GroundedOracleService:
         limit: int = 5,
         provided_contexts: Optional[List[Dict[str, Any]]] = None,
         is_summary_mode: bool = False,
+        conversation_history: Optional[List[Dict[str, str]]] = None,
     ) -> tuple[str, List[Dict[str, Any]], bool]:
         """Gera resposta grounded a partir da memória semântica.
 
@@ -134,14 +136,26 @@ class GroundedOracleService:
 
         system_instruction = SUMMARY_SYSTEM_PROMPT if use_summary_prompt else FACTUAL_SYSTEM_PROMPT
 
+        history_text = ""
+        if conversation_history:
+            turns = []
+            for h in conversation_history[-6:]:
+                role = "Usuário" if h.get("role") == "user" else "Oráculo"
+                turns.append(f"{role}: {h.get('content', '')}")
+            history_text = "<historico_conversa>\n" + "\n".join(turns) + "\n</historico_conversa>\n\n"
+
         prompt = (
             f"<base_conhecimento>\n{context_body}\n</base_conhecimento>\n\n"
+            f"{history_text}"
             f"[Data de referência do sistema: {now_full} - {now_str}]\n\n"
             f"Consulta do usuário: \"{user_query.strip()}\"\n"
             f"Equivalência de entidades: Nomes em inglês e português referem-se à mesma entidade (ex: White House = Casa Branca, EUA = US/USA, IA = AI).\n\n"
-            f"Tarefa: Sintetize o que as notícias arquivadas acima em <base_conhecimento> relatam sobre o assunto consultado.\n"
+            f"Tarefa: Sintetize o que as notícias arquivadas acima em <base_conhecimento> relatam sobre o assunto consultado, mantendo a coerência e continuidade com o <historico_conversa> se houver.\n"
             f"Apresente os fatos, anúncios, acordos e acontecimentos noticiados nos documentos.\n"
-            f"PROIBIDO: Não defina prédios, história geral ou conhecimentos externos de enciclopédia. Comece relatando diretamente os acontecimentos noticiados. Se os documentos não contiverem o assunto, informe que não há informações nas notícias arquivadas.\n\n"
+            f"DIRETRIZES ESSENCIAIS:\n"
+            f"1. Se a pergunta for uma continuação (ex: 'quais países?', 'como assim?'), use o histórico para entender a referência e responda com base nos documentos.\n"
+            f"2. Se o documento contiver dados gerais (ex: '21 países') mas não listar todos os nomes, esclareça com precisão quais foram citados nominalmente e informe que os demais não foram divulgados pela fonte, sem inventar fatos.\n"
+            f"3. Não invente definições de enciclopédia. Comece relatando diretamente os fatos.\n\n"
             f"Resposta baseada nas notícias:"
         )
 
@@ -184,10 +198,12 @@ class GroundedOracleService:
         limit: int = 5,
         provided_contexts: Optional[List[Dict[str, Any]]] = None,
         is_summary_mode: bool = False,
+        conversation_history: Optional[List[Dict[str, str]]] = None,
     ) -> tuple[str, List[Dict[str, Any]], bool]:
         return self.answer(
             user_query,
             limit=limit,
             provided_contexts=provided_contexts,
             is_summary_mode=is_summary_mode,
+            conversation_history=conversation_history,
         )

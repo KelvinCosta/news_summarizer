@@ -17,8 +17,17 @@ from core.application.use_cases.ingestion_service import IngestionService
 from core.application.use_cases.summarizer_service import SummarizerService
 from core.domain.models.events import ImmutableEventStore
 from core.fsm.orchestrator import FSMOrchestrator
+from core.infrastructure.adapters.ollama_client import OllamaClient
+from core.inference.ollama_agent import OllamaMasterAgent, OllamaSummarizerAgent
 from core.persistence.chroma_adapter import ChromaDBAdapter
 from core.persistence.parquet_store import ParquetStore
+
+try:
+    from dotenv import load_dotenv
+
+    load_dotenv()
+except ImportError:
+    pass
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 
@@ -36,6 +45,9 @@ class NewsSummarizerApp:
             logging.warning(f"ChromaDB não pôde ser inicializado completamente: {e}")
             self.memory = None
 
+        self.timeout = float(os.getenv("OLLAMA_TIMEOUT", "300.0"))
+        self.client = OllamaClient(timeout=self.timeout)
+
         self.ingestion_service = IngestionService(
             parquet_store=self.parquet_store,
             event_store=self.event_store,
@@ -43,21 +55,26 @@ class NewsSummarizerApp:
         self.summarizer_service = SummarizerService(
             parquet_store=self.parquet_store,
             semantic_memory=self.memory,
+            summarizer_agent=OllamaSummarizerAgent(client=self.client),
+            master_agent=OllamaMasterAgent(client=self.client),
         )
         self.bulletin_viewer = BulletinViewerService(
             parquet_store=self.parquet_store,
             semantic_memory=self.memory,
+            master_agent=OllamaMasterAgent(client=self.client),
         )
         self.orchestrator = FSMOrchestrator(
             semantic_memory=self.memory,
             event_store=self.event_store,
             parquet_store=self.parquet_store,
+            client=self.client,
         )
 
     def print_header(self) -> None:
+        active_model = os.getenv("OLLAMA_MODEL", "llama3.2")
         print("\n" + "=" * 75)
         print("  📰 NEWS SUMMARIZER - Inteligência Autônoma de Notícias (SLM On-Premise)")
-        print("  Arquitetura em Estágios, Clean Pipeline, CQRS & Event Sourcing")
+        print(f"  Modelo SLM Ativo: {active_model} | Clean Pipeline, CQRS & Event Sourcing")
         print("=" * 75)
 
     def print_menu(self) -> None:
@@ -372,10 +389,15 @@ class NewsSummarizerApp:
         input("Pressione Enter para voltar à navegação...")
 
     def run_rag_chat(self) -> None:
+        from uuid import uuid4
+
         print("\n" + "=" * 75)
-        print("🧠 Terminal de RAG - Modo Oráculo Estrito (Clean Architecture)")
-        print("Faça perguntas sobre as notícias arquivadas. Digite 'v' para voltar ao menu.")
+        print("🧠 Terminal de RAG - Modo Oráculo Estrito & Conversacional (Clean Architecture)")
+        print("Faça perguntas e continue a conversa sobre as notícias arquivadas.")
+        print("Comandos: [v] Voltar ao menu | [/limpar] Reiniciar histórico da conversa")
         print("=" * 75)
+
+        chat_session_id = str(uuid4())
 
         while True:
             try:
@@ -384,9 +406,13 @@ class NewsSummarizerApp:
                     continue
                 if query.lower() in ["v", "voltar", "q", "sair"]:
                     break
+                if query.lower() in ["/limpar", "/reset", "/novo"]:
+                    chat_session_id = str(uuid4())
+                    print("\n[✓] Contexto e histórico da conversa reiniciados!")
+                    continue
 
                 print(" (Processando pelos 4 estágios do pipeline...)")
-                result = self.orchestrator.handle_message(query)
+                result = self.orchestrator.handle_message(query, session_id=chat_session_id)
 
                 print(f"\nOráculo [{result.intent.value}]:\n{result.response}")
 
