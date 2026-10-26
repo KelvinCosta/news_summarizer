@@ -33,20 +33,14 @@ class OllamaClient:
     def __init__(
         self,
         base_url: Optional[str] = None,
-        timeout: float = 60.0,
+        timeout: Optional[float] = None,
     ) -> None:
-        """Inicializa o cliente com URL base e tempo limite configuráveis.
-
-        Args:
-            base_url: URL base do servidor Ollama (ex: 'http://localhost:11434').
-                Se omitido, consulta a variável de ambiente OLLAMA_BASE_URL.
-            timeout: Tempo limite da requisição HTTP em segundos (default: 60.0).
-        """
         raw_url = base_url or os.getenv("OLLAMA_BASE_URL", self.DEFAULT_BASE_URL)
         self._base_url = raw_url.rstrip("/")
         self._generate_endpoint = f"{self._base_url}/api/generate"
         self._embeddings_endpoint = f"{self._base_url}/api/embeddings"
-        self._timeout = timeout
+        env_timeout = float(os.getenv("OLLAMA_TIMEOUT", "60.0"))
+        self._timeout = timeout if timeout is not None else env_timeout
 
     @property
     def base_url(self) -> str:
